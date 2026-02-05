@@ -1,9 +1,7 @@
 from datetime import datetime
 import enum
 import uuid
-from sqlalchemy import (
-    Column, String, Integer, DateTime, Enum, JSON, ForeignKey, Text
-)
+from sqlalchemy import Column, String, Integer, DateTime, Enum, JSON, ForeignKey
 from sqlalchemy.orm import declarative_base, relationship
 
 Base = declarative_base()
@@ -28,8 +26,6 @@ class Batch(Base):
     status = Column(Enum(BatchStatus), default=BatchStatus.submitted, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     finished_at = Column(DateTime, nullable=True)
-
-    # relationship to jobs (backref)
     jobs = relationship("Job", back_populates="batch")
 
 class Job(Base):
@@ -39,11 +35,10 @@ class Job(Base):
     version = Column(String(64), nullable=False)
     status = Column(Enum(JobStatus), default=JobStatus.submitted, nullable=False)
     attempts = Column(Integer, default=0)
-    result = Column(JSON, nullable=True)          # verdict, reasons, summary
+    result = Column(JSON, nullable=True)
     report_url = Column(String(1024), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     started_at = Column(DateTime, nullable=True)
     finished_at = Column(DateTime, nullable=True)
     batch_id = Column(String(36), ForeignKey("batches.id"), nullable=True)
-
     batch = relationship("Batch", back_populates="jobs")
