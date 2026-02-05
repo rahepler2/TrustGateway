@@ -109,12 +109,17 @@ class ScanVerdict(Enum):
 # Database / storage
 # ---------------------------------------------------------------------------
 
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://trivy:trivy_pass@postgres:5432/trivydb")
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    _pg_user = os.getenv("PG_USER", "gateway")
+    _pg_pass = os.getenv("PG_PASS", "")
+    _pg_db = os.getenv("PG_DB", "gatewaydb")
+    DATABASE_URL = f"postgresql://{_pg_user}:{_pg_pass}@postgres:5432/{_pg_db}"
 
 MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "http://minio:9000")
 MINIO_BUCKET = os.getenv("MINIO_BUCKET", "scan-reports")
-MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "minioadmin")
-MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "minioadmin")
+MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "")
+MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "")
 
 # Workers
 SCAN_WORKERS = int(os.getenv("SCAN_WORKERS", "3"))

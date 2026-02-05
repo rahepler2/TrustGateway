@@ -74,15 +74,15 @@ services:
     image: postgres:15
     container_name: gateway-pg
     environment:
-      - POSTGRES_USER=${PG_USER:-trivy}
-      - POSTGRES_PASSWORD=${PG_PASS:-trivy_pass}
+      - POSTGRES_USER=${PG_USER}
+      - POSTGRES_PASSWORD=${PG_PASS}
       - POSTGRES_DB=${PG_DB:-gatewaydb}
     volumes:
       - pg-data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${PG_USER:-trivy}"]
+      test: ["CMD-SHELL", "pg_isready -U ${PG_USER}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -97,8 +97,8 @@ services:
     image: minio/minio:latest
     container_name: minio
     environment:
-      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
-      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin}
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
     command: server /data --console-address ":9001"
     ports:
       - "9000:9000"   # S3 API
@@ -121,7 +121,9 @@ services:
     image: grafana/grafana:10.4.1
     container_name: grafana
     environment:
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
+      - PG_USER=${PG_USER}
+      - PG_PASS=${PG_PASS}
     ports:
       - "3000:3000"
     depends_on:
@@ -148,8 +150,8 @@ services:
       - FLASK_PORT=5000
       # Nexus
       - NEXUS_URL=http://nexus:8081
-      - NEXUS_USER=${NEXUS_USER:-admin}
-      - NEXUS_PASS=${NEXUS_PASS:-admin123}
+      - NEXUS_USER=${NEXUS_USER}
+      - NEXUS_PASS=${NEXUS_PASS}
       # Scanners
       - TRIVY_SERVER_URL=http://trivy-server:8080
       - TRIVY_CONTAINER=trivy-server
@@ -163,11 +165,11 @@ services:
       - POLICY_BLOCK_FS=${POLICY_BLOCK_FS:-false}
       - POLICY_BLOCK_MALWARE=${POLICY_BLOCK_MALWARE:-true}
       # Database
-      - DATABASE_URL=postgresql://${PG_USER:-trivy}:${PG_PASS:-trivy_pass}@postgres:5432/${PG_DB:-gatewaydb}
+      - DATABASE_URL=postgresql://${PG_USER}:${PG_PASS}@postgres:5432/${PG_DB:-gatewaydb}
       # MinIO
       - MINIO_ENDPOINT=http://minio:9000
-      - MINIO_ACCESS_KEY=${MINIO_ROOT_USER:-minioadmin}
-      - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD:-minioadmin}
+      - MINIO_ACCESS_KEY=${MINIO_ROOT_USER}
+      - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD}
       - MINIO_BUCKET=${MINIO_BUCKET:-scan-reports}
       # Workers
       - SCAN_WORKERS=${SCAN_WORKERS:-3}

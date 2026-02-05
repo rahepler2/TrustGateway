@@ -6,9 +6,9 @@ datasources:
     access: proxy
     url: gateway-pg:5432
     database: gatewaydb
-    user: trivy
+    user: $PG_USER
     secureJsonData:
-      password: trivy_pass
+      password: $PG_PASS
     jsonData:
       sslmode: disable
       maxOpenConns: 10

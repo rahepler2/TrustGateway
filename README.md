@@ -386,8 +386,8 @@ docker compose ps    # Check healthcheck status
 ### Nexus authentication errors
 
 ```bash
-# Verify credentials work
-curl -u admin:admin123 http://localhost:8081/service/rest/v1/status
+# Verify credentials work (use credentials from your .env file)
+curl -u $NEXUS_USER:$NEXUS_PASS http://localhost:8081/service/rest/v1/status
 
 # Check NEXUS_USER / NEXUS_PASS in .env match your Nexus admin credentials
 ```
