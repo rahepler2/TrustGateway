@@ -1,0 +1,9 @@
+# .npmrc — Point npm at the Nexus npm-group repo (trusted packages only)
+#
+# Install on developer machines:
+#   Place as ~/.npmrc or in the project root as .npmrc
+#
+# Replace <nexus-host> with your Nexus server hostname/IP.
+
+registry=http://<nexus-host>:8081/repository/npm-group/
+always-auth=true

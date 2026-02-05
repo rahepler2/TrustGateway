@@ -1,0 +1,27 @@
+<!-- Maven settings.xml — Point Maven at the Nexus maven-group repo
+
+     Install on developer machines:
+       Place as ~/.m2/settings.xml
+
+     Replace <nexus-host> with your Nexus server hostname/IP.
+-->
+<settings xmlns="http://maven.apache.org/SETTINGS/1.2.0"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.2.0
+                              https://maven.apache.org/xsd/settings-1.2.0.xsd">
+  <mirrors>
+    <mirror>
+      <id>nexus-maven</id>
+      <mirrorOf>*</mirrorOf>
+      <url>http://<nexus-host>:8081/repository/maven-group/</url>
+    </mirror>
+  </mirrors>
+
+  <servers>
+    <server>
+      <id>nexus-maven</id>
+      <username>developer</username>
+      <password>ask-your-admin</password>
+    </server>
+  </servers>
+</settings>

@@ -1,18 +1,33 @@
 version: "3.8"
 
 services:
+  # ---------------------------------------------------------------------------
+  # Nexus Repository Manager — central package/container registry
+  # ---------------------------------------------------------------------------
   nexus:
     image: sonatype/nexus3:latest
     container_name: nexus
     ports:
-      - "8081:8081"
+      - "8081:8081"     # Web UI + API
+      - "9443:9443"     # Docker group (developer pull)
+      - "9444:9444"     # Docker trusted (hosted)
+      - "9445:9445"     # Docker upstream proxy
     volumes:
       - nexus-data:/nexus-data
     environment:
       - INSTALL4J_ADD_VM_PARAMS=-Xms1200m -Xmx1200m
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/service/rest/v1/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 20
+      start_period: 120s
     networks:
       - security-net
 
+  # ---------------------------------------------------------------------------
+  # Trivy Server — vulnerability + secret scanning
+  # ---------------------------------------------------------------------------
   trivy-server:
     image: aquasecurity/trivy:latest
     container_name: trivy-server
@@ -21,83 +36,155 @@ services:
       - "8080:8080"
     volumes:
       - trivy-cache:/var/trivy/cache
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
     networks:
       - security-net
 
+  # ---------------------------------------------------------------------------
+  # OSSF Worker — behavioral package analysis (server-side)
+  # ---------------------------------------------------------------------------
+  ossf-worker:
+    build:
+      context: ./ossf-worker
+      dockerfile: Dockerfile
+    container_name: ossf-worker
+    ports:
+      - "8090:8090"
+    environment:
+      - OSSF_PORT=8090
+      - OSSF_TIMEOUT=${OSSF_TIMEOUT:-300}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8090/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - security-net
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL — job/batch metadata, Grafana datasource
+  # ---------------------------------------------------------------------------
   postgres:
     image: postgres:15
-    container_name: trivy_pg
+    container_name: gateway-pg
     environment:
       - POSTGRES_USER=${PG_USER:-trivy}
       - POSTGRES_PASSWORD=${PG_PASS:-trivy_pass}
-      - POSTGRES_DB=${PG_DB:-trivydb}
+      - POSTGRES_DB=${PG_DB:-gatewaydb}
     volumes:
       - pg-data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PG_USER:-trivy}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     networks:
       - security-net
 
+  # ---------------------------------------------------------------------------
+  # MinIO — S3-compatible object storage for scan reports + SBOMs
+  # ---------------------------------------------------------------------------
   minio:
-    image: minio/minio:RELEASE.2023-11-14T02-37-10Z
+    image: minio/minio:latest
     container_name: minio
     environment:
       - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
       - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin}
     command: server /data --console-address ":9001"
     ports:
-      - "9000:9000"  # S3 API
-      - "9001:9001"  # Console
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # Console
     volumes:
       - minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     networks:
       - security-net
 
+  # ---------------------------------------------------------------------------
+  # Grafana — dashboarding, auditing, threat visibility
+  # ---------------------------------------------------------------------------
   grafana:
-    image: grafana/grafana:9.5.6
+    image: grafana/grafana:10.4.1
     container_name: grafana
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
     ports:
       - "3000:3000"
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     volumes:
       - grafana-data:/var/lib/grafana
+      - ./config/grafana/provisioning:/etc/grafana/provisioning
+      - ./config/grafana/dashboards:/var/lib/grafana/dashboards
     networks:
       - security-net
 
-  orchestrator:
+  # ---------------------------------------------------------------------------
+  # Trust Gateway — the scanning engine + API
+  # ---------------------------------------------------------------------------
+  gateway:
     build:
-      context: ./orchestrator
+      context: ./gateway
       dockerfile: Dockerfile
-    container_name: orchestrator
+    container_name: gateway
     environment:
+      # Flask
       - FLASK_HOST=0.0.0.0
       - FLASK_PORT=5000
-      - TRIVY_REMOTE=http://trivy-server:8080
-      - NEXUS_BASE_URL=http://nexus:8081
-      - NEXUS_API_USER=${NEXUS_API_USER:-admin}
-      - NEXUS_API_PASS=${NEXUS_API_PASS:-admin123}
-      - POLICY_SEVERITY_BLOCK=${POLICY_SEVERITY_BLOCK:-HIGH,CRITICAL}
-      - POSTGRES_HOST=postgres
-      - POSTGRES_PORT=5432
-      - POSTGRES_DB=${PG_DB:-trivydb}
-      - POSTGRES_USER=${PG_USER:-trivy}
-      - POSTGRES_PASS=${PG_PASS:-trivy_pass}
+      # Nexus
+      - NEXUS_URL=http://nexus:8081
+      - NEXUS_USER=${NEXUS_USER:-admin}
+      - NEXUS_PASS=${NEXUS_PASS:-admin123}
+      # Scanners
+      - TRIVY_SERVER_URL=http://trivy-server:8080
+      - TRIVY_CONTAINER=trivy-server
+      - OSSF_API_URL=http://ossf-worker:8090
+      - OSSF_TIMEOUT=${OSSF_TIMEOUT:-300}
+      # Policy
+      - POLICY_MAX_CVSS=${POLICY_MAX_CVSS:-7.0}
+      - POLICY_BLOCK_CRITICAL=${POLICY_BLOCK_CRITICAL:-true}
+      - POLICY_BLOCK_HIGH=${POLICY_BLOCK_HIGH:-true}
+      - POLICY_BLOCK_NET=${POLICY_BLOCK_NET:-true}
+      - POLICY_BLOCK_FS=${POLICY_BLOCK_FS:-false}
+      - POLICY_BLOCK_MALWARE=${POLICY_BLOCK_MALWARE:-true}
+      # Database
+      - DATABASE_URL=postgresql://${PG_USER:-trivy}:${PG_PASS:-trivy_pass}@postgres:5432/${PG_DB:-gatewaydb}
+      # MinIO
       - MINIO_ENDPOINT=http://minio:9000
       - MINIO_ACCESS_KEY=${MINIO_ROOT_USER:-minioadmin}
       - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD:-minioadmin}
-      - MINIO_BUCKET=${MINIO_BUCKET:-trivy-reports}
+      - MINIO_BUCKET=${MINIO_BUCKET:-scan-reports}
+      # Workers
+      - SCAN_WORKERS=${SCAN_WORKERS:-3}
     ports:
       - "5000:5000"
     depends_on:
-      - trivy-server
-      - nexus
-      - postgres
-      - minio
+      nexus:
+        condition: service_healthy
+      trivy-server:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
     volumes:
-      - ./orchestrator/data:/data
+      - ./gateway/scan-reports:/app/scan-reports
+      - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - security-net
 

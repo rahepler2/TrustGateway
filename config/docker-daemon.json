@@ -1,0 +1,9 @@
+{
+  "_comment": "Docker daemon.json — Point Docker at the Nexus docker-group registry",
+  "_comment2": "Install: /etc/docker/daemon.json (Linux) or Docker Desktop settings (Win/Mac)",
+  "_comment3": "Replace <nexus-host> with your Nexus server hostname/IP",
+  "_comment4": "Port 9443 is the docker-group (trusted) registry connector",
+
+  "registry-mirrors": ["http://<nexus-host>:9443"],
+  "insecure-registries": ["<nexus-host>:9443"]
+}

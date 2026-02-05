@@ -1,0 +1,19 @@
+apiVersion: 1
+
+datasources:
+  - name: Gateway PostgreSQL
+    type: postgres
+    access: proxy
+    url: gateway-pg:5432
+    database: gatewaydb
+    user: trivy
+    secureJsonData:
+      password: trivy_pass
+    jsonData:
+      sslmode: disable
+      maxOpenConns: 10
+      maxIdleConns: 5
+      connMaxLifetime: 14400
+      postgresVersion: 1500
+    isDefault: true
+    editable: true

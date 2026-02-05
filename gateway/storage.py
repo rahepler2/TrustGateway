@@ -1,6 +1,9 @@
-import os
+"""
+MinIO / S3-compatible object storage for scan reports and SBOMs.
+"""
 import boto3
 from botocore.client import Config
+
 from .config import MINIO_ENDPOINT, MINIO_ACCESS_KEY, MINIO_SECRET_KEY, MINIO_BUCKET
 
 s3 = boto3.client(
@@ -12,11 +15,13 @@ s3 = boto3.client(
     region_name="us-east-1",
 )
 
+
 def ensure_bucket():
     try:
         s3.head_bucket(Bucket=MINIO_BUCKET)
     except Exception:
         s3.create_bucket(Bucket=MINIO_BUCKET)
+
 
 def upload_file(local_path: str, key: str) -> str:
     ensure_bucket()
