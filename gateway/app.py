@@ -17,11 +17,14 @@ import sys
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, Future
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from .config import ScanVerdict, SCAN_WORKERS, FLASK_HOST, FLASK_PORT
 from .pipeline import TrustGateway
+from .db import SessionLocal, create_tables
+from .models import Job, JobStatus
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("trust-gateway")
@@ -36,6 +39,73 @@ BATCHES: Dict[str, Dict] = {}
 GATEWAY = TrustGateway()
 
 
+# ---------------------------------------------------------------------------
+# Database persistence
+# ---------------------------------------------------------------------------
+
+def _init_db():
+    """Create tables on startup (idempotent)."""
+    try:
+        create_tables()
+        log.info("Database tables initialized")
+    except Exception as e:
+        log.warning(f"Database init failed (non-fatal): {e}")
+
+
+def _persist_job(job_id: str, package: str, version: str, ecosystem: str):
+    """Insert a new Job record into PostgreSQL."""
+    try:
+        session = SessionLocal()
+        job = Job(
+            id=job_id,
+            package=package,
+            version=version,
+            ecosystem=ecosystem,
+            status=JobStatus.running,
+            started_at=datetime.now(timezone.utc),
+        )
+        session.add(job)
+        session.commit()
+    except Exception as e:
+        log.warning(f"Failed to persist job {job_id}: {e}")
+        try:
+            session.rollback()
+        except Exception:
+            pass
+    finally:
+        SessionLocal.remove()
+
+
+def _complete_job(job_id: str, future: Future):
+    """Callback: update Job record when scan completes."""
+    try:
+        session = SessionLocal()
+        job = session.get(Job, job_id)
+        if not job:
+            return
+        now = datetime.now(timezone.utc)
+        try:
+            verdict, report = future.result(timeout=0)
+            if verdict.value in ("pass", "warn"):
+                job.status = JobStatus.done
+            else:
+                job.status = JobStatus.failed
+            job.result = {"verdict": verdict.value, "report": str(report)}
+        except Exception as e:
+            job.status = JobStatus.failed
+            job.result = {"verdict": "error", "error": str(e) or type(e).__name__}
+        job.finished_at = now
+        session.commit()
+    except Exception as e:
+        log.warning(f"Failed to update job {job_id}: {e}")
+        try:
+            session.rollback()
+        except Exception:
+            pass
+    finally:
+        SessionLocal.remove()
+
+
 def submit_scan_job(package: str, version: str, ecosystem: str = "pypi") -> str:
     job_id = str(uuid.uuid4())
     future = POOL.submit(GATEWAY.process_package, package, version, ecosystem)
@@ -46,6 +116,8 @@ def submit_scan_job(package: str, version: str, ecosystem: str = "pypi") -> str:
         "ecosystem": ecosystem,
         "submitted_at": time.time(),
     }
+    _persist_job(job_id, package, version, ecosystem)
+    future.add_done_callback(lambda f: _complete_job(job_id, f))
     log.info(f"Submitted job {job_id} for {package}=={version} ({ecosystem})")
     return job_id
 
@@ -93,6 +165,8 @@ def parse_spec(spec: str) -> Tuple[Optional[str], Optional[str]]:
 
 def create_app():
     from flask import Flask, request as flask_request, jsonify
+
+    _init_db()
 
     app = Flask("trust-gateway")
 
