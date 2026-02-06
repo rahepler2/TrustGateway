@@ -75,7 +75,7 @@
       "title": "CVE Severity Breakdown",
       "type": "barchart",
       "targets": [{
-        "rawSql": "SELECT package || '==' || version AS pkg, COALESCE((result->'trivy'->>'critical')::int, 0) AS critical, COALESCE((result->'trivy'->>'high')::int, 0) AS high, COALESCE((result->'trivy'->>'medium')::int, 0) AS medium, COALESCE((result->'trivy'->>'low')::int, 0) AS low FROM jobs WHERE result->'trivy' IS NOT NULL ORDER BY created_at DESC LIMIT 20;",
+        "rawSql": "SELECT DISTINCT ON (package, version) package || CASE WHEN ecosystem = 'docker' THEN ':' ELSE '==' END || version AS pkg, COALESCE((result->'trivy'->>'critical')::int, 0) AS critical, COALESCE((result->'trivy'->>'high')::int, 0) AS high, COALESCE((result->'trivy'->>'medium')::int, 0) AS medium, COALESCE((result->'trivy'->>'low')::int, 0) AS low FROM jobs WHERE result ? 'trivy' ORDER BY package, version, created_at DESC;",
         "refId": "A",
         "format": "table"
       }]
@@ -104,7 +104,9 @@
         "overrides": [
           { "matcher": { "id": "byName", "options": "verdict" }, "properties": [{ "id": "custom.displayMode", "value": "color-text" }, { "id": "mappings", "value": [{ "type": "value", "options": { "pass": { "color": "green", "text": "PASS" }, "warn": { "color": "orange", "text": "WARN" }, "fail": { "color": "red", "text": "FAIL" }, "error": { "color": "purple", "text": "ERROR" } } }] }] },
           { "matcher": { "id": "byName", "options": "critical" }, "properties": [{ "id": "custom.displayMode", "value": "color-background-solid" }, { "id": "color", "value": { "fixedColor": "dark-red", "mode": "fixed" } }] },
-          { "matcher": { "id": "byName", "options": "high" }, "properties": [{ "id": "custom.displayMode", "value": "color-background-solid" }, { "id": "color", "value": { "fixedColor": "orange", "mode": "fixed" } }] }
+          { "matcher": { "id": "byName", "options": "high" }, "properties": [{ "id": "custom.displayMode", "value": "color-background-solid" }, { "id": "color", "value": { "fixedColor": "orange", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "package" }, "properties": [{ "id": "links", "value": [{ "title": "View scan details", "url": "/d/trust-gateway-detail?var-job_id=${__data.fields.id}" }] }] },
+          { "matcher": { "id": "byName", "options": "id" }, "properties": [{ "id": "links", "value": [{ "title": "View scan details", "url": "/d/trust-gateway-detail?var-job_id=${__value.text}" }] }, { "id": "custom.width", "value": 80 }, { "id": "custom.displayMode", "value": "color-text" }, { "id": "color", "value": { "fixedColor": "super-light-blue", "mode": "fixed" } }] }
         ]
       },
       "gridPos": { "h": 10, "w": 24, "x": 0, "y": 13 },
@@ -113,7 +115,7 @@
       "title": "Recent Scan Jobs",
       "type": "table",
       "targets": [{
-        "rawSql": "SELECT id, package, version, ecosystem, status, result->>'verdict' AS verdict, COALESCE((result->'trivy'->>'critical')::int, 0) AS critical, COALESCE((result->'trivy'->>'high')::int, 0) AS high, COALESCE((result->'trivy'->>'medium')::int, 0) AS medium, COALESCE((result->'sbom'->>'component_count')::int, 0) AS components, created_at AS scanned, finished_at - created_at AS duration FROM jobs ORDER BY created_at DESC LIMIT 50;",
+        "rawSql": "SELECT id, package || CASE WHEN ecosystem = 'docker' THEN ':' ELSE '==' END || version AS package, ecosystem, result->>'verdict' AS verdict, CASE WHEN result ? 'trivy' THEN (result->'trivy'->>'critical')::int END AS critical, CASE WHEN result ? 'trivy' THEN (result->'trivy'->>'high')::int END AS high, CASE WHEN result ? 'trivy' THEN (result->'trivy'->>'medium')::int END AS medium, CASE WHEN result ? 'trivy' THEN (result->'trivy'->>'low')::int END AS low, CASE WHEN result ? 'sbom' THEN (result->'sbom'->>'component_count')::int END AS components, created_at AS scanned, finished_at - created_at AS duration FROM jobs ORDER BY created_at DESC LIMIT 50;",
         "refId": "A",
         "format": "table"
       }]
@@ -159,7 +161,10 @@
       "datasource": { "type": "postgres", "uid": "${DS_GATEWAY_POSTGRESQL}" },
       "fieldConfig": {
         "defaults": { "color": { "mode": "palette-classic" }, "custom": { "align": "auto", "displayMode": "auto" }, "mappings": [] },
-        "overrides": []
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "package" }, "properties": [{ "id": "links", "value": [{ "title": "View scan details", "url": "/d/trust-gateway-detail?var-job_id=${__data.fields.id}" }] }] },
+          { "matcher": { "id": "byName", "options": "id" }, "properties": [{ "id": "custom.hidden", "value": true }] }
+        ]
       },
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 31 },
       "id": 13,
@@ -167,7 +172,7 @@
       "title": "Top Vulnerable Packages",
       "type": "table",
       "targets": [{
-        "rawSql": "SELECT package, version, ecosystem, COALESCE((result->'trivy'->>'critical')::int, 0) AS critical, COALESCE((result->'trivy'->>'high')::int, 0) AS high, COALESCE((result->'trivy'->>'medium')::int, 0) AS medium, COALESCE((result->'trivy'->>'low')::int, 0) AS low, COALESCE((result->'trivy'->>'critical')::int, 0) + COALESCE((result->'trivy'->>'high')::int, 0) AS total_crit_high FROM jobs WHERE result->'trivy' IS NOT NULL ORDER BY total_crit_high DESC LIMIT 10;",
+        "rawSql": "SELECT * FROM (SELECT DISTINCT ON (package, version) id, package || CASE WHEN ecosystem = 'docker' THEN ':' ELSE '==' END || version AS package, ecosystem, COALESCE((result->'trivy'->>'critical')::int, 0) AS critical, COALESCE((result->'trivy'->>'high')::int, 0) AS high, COALESCE((result->'trivy'->>'medium')::int, 0) AS medium, COALESCE((result->'trivy'->>'low')::int, 0) AS low, COALESCE((result->'trivy'->>'critical')::int, 0) + COALESCE((result->'trivy'->>'high')::int, 0) AS total_crit_high FROM jobs WHERE result ? 'trivy' ORDER BY package, version, created_at DESC) sub ORDER BY total_crit_high DESC LIMIT 10;",
         "refId": "A",
         "format": "table"
       }]

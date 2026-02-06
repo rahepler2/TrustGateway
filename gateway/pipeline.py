@@ -35,14 +35,33 @@ ECOSYSTEM_MAP = {
 
 
 def _extract_scan_summary(all_results: dict, sbom_file: str | None) -> dict:
-    """Extract summary metrics from raw scan results for database storage."""
+    """Extract detailed scan metrics from raw results for database storage.
+
+    Stores both aggregate counts (for overview dashboard) and individual
+    CVE / SBOM records (for drill-down detail dashboard).
+    """
     trivy = all_results.get("trivy", {})
     cve_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0, "unknown": 0}
+    cve_list = []
     for result in trivy.get("Results", []) or []:
+        target = result.get("Target", "")
         for vuln in result.get("Vulnerabilities", []) or []:
             sev = vuln.get("Severity", "UNKNOWN").lower()
             if sev in cve_counts:
                 cve_counts[sev] += 1
+            cve_list.append({
+                "id": vuln.get("VulnerabilityID", ""),
+                "severity": sev,
+                "pkg": vuln.get("PkgName", ""),
+                "installed": vuln.get("InstalledVersion", ""),
+                "fixed": vuln.get("FixedVersion", ""),
+                "title": (vuln.get("Title") or vuln.get("Description", ""))[:200],
+                "target": target,
+            })
+
+    # Sort CVEs: critical first, then high, medium, low
+    sev_order = {"critical": 0, "high": 1, "medium": 2, "low": 3, "unknown": 4}
+    cve_list.sort(key=lambda c: sev_order.get(c["severity"], 5))
 
     secrets_count = sum(
         len(r.get("Secrets", []) or [])
@@ -54,28 +73,39 @@ def _extract_scan_summary(all_results: dict, sbom_file: str | None) -> dict:
         "component_count": sbom.get("component_count", 0),
         "format": sbom.get("format", "unknown"),
         "licenses": [],
+        "components": [],
     }
 
-    # Read SBOM file for license data
+    # Read SBOM file for license + component data
     if sbom_file and Path(sbom_file).exists():
         try:
             with open(sbom_file) as f:
                 sbom_data = json.load(f)
-            seen = set()
+            seen_licenses = set()
             for comp in sbom_data.get("components", []):
+                comp_licenses = []
                 for lic in comp.get("licenses", []):
                     lid = (
                         lic.get("license", {}).get("id")
                         or lic.get("license", {}).get("name", "")
                     )
-                    if lid and lid not in seen:
-                        seen.add(lid)
-                        sbom_summary["licenses"].append(lid)
+                    if lid:
+                        comp_licenses.append(lid)
+                        if lid not in seen_licenses:
+                            seen_licenses.add(lid)
+                            sbom_summary["licenses"].append(lid)
+                sbom_summary["components"].append({
+                    "name": comp.get("name", ""),
+                    "version": comp.get("version", ""),
+                    "type": comp.get("type", ""),
+                    "license": ", ".join(comp_licenses) if comp_licenses else "",
+                })
         except Exception:
             pass
 
     return {
         "trivy": cve_counts,
+        "cves": cve_list,
         "secrets": secrets_count,
         "sbom": sbom_summary,
         "ossf_skipped": all_results.get("ossf", {}).get("skipped", True),
