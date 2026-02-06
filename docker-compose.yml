@@ -176,7 +176,7 @@ services:
       # Workers
       - SCAN_WORKERS=${SCAN_WORKERS:-3}
     ports:
-      - "5000:5000"
+      - "5002:5000"
     depends_on:
       nexus:
         condition: service_healthy
@@ -191,6 +191,31 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - security-net
+
+  # ---------------------------------------------------------------------------
+  # Nexus Setup — one-shot service to create repos, roles, users
+  # ---------------------------------------------------------------------------
+  # Usage: docker compose run --rm nexus-setup
+  nexus-setup:
+    image: python:3.11-slim
+    container_name: nexus-setup
+    environment:
+      - NEXUS_URL=http://nexus:8081
+      - NEXUS_ADMIN_PASS=${NEXUS_ADMIN_PASS}
+      - GATEWAY_SVC_PASS=${GATEWAY_SVC_PASS:-ChangeMeGateway!2025}
+      - DEVELOPER_PASS=${DEVELOPER_PASS:-ChangeMeDeveloper!2025}
+    volumes:
+      - ./setup_nexus.py:/app/setup_nexus.py:ro
+      - nexus-data:/nexus-data:ro
+    working_dir: /app
+    entrypoint: ["sh", "-c", "pip install -q requests && python setup_nexus.py"]
+    depends_on:
+      nexus:
+        condition: service_healthy
+    networks:
+      - security-net
+    profiles:
+      - setup
 
 volumes:
   nexus-data:

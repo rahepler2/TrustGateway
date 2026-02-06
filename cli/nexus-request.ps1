@@ -43,7 +43,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$GatewayUrl = if ($env:TRUST_GATEWAY_URL) { $env:TRUST_GATEWAY_URL.TrimEnd("/") } else { "http://localhost:5000" }
+$GatewayUrl = if ($env:TRUST_GATEWAY_URL) { $env:TRUST_GATEWAY_URL.TrimEnd("/") } else { "http://localhost:5002" }
 
 $Headers = @{ "Accept" = "application/json"; "Content-Type" = "application/json" }
 if ($env:TRUST_GATEWAY_KEY) {

@@ -29,7 +29,7 @@ except ImportError:
     print("ERROR: 'requests' library required.  pip install requests")
     sys.exit(1)
 
-GATEWAY_URL = os.getenv("TRUST_GATEWAY_URL", "http://localhost:5000").rstrip("/")
+GATEWAY_URL = os.getenv("TRUST_GATEWAY_URL", "http://localhost:5002").rstrip("/")
 GATEWAY_KEY = os.getenv("TRUST_GATEWAY_KEY")
 POLL_INTERVAL = int(os.getenv("POLL_INTERVAL", "3"))
 
