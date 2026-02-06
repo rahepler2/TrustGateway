@@ -58,7 +58,7 @@
       "title": "Package",
       "type": "stat",
       "targets": [{
-        "rawSql": "SELECT package || '==' || version AS name FROM jobs WHERE id = '${job_id}';",
+        "rawSql": "SELECT package || CASE WHEN ecosystem = 'docker' THEN ':' ELSE '==' END || version AS name FROM jobs WHERE id = '${job_id}';",
         "refId": "A",
         "format": "table"
       }]
