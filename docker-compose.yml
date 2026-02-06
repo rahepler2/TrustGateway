@@ -29,7 +29,7 @@ services:
   # Trivy Server — vulnerability + secret scanning
   # ---------------------------------------------------------------------------
   trivy-server:
-    image: aquasecurity/trivy:latest
+    image: aquasec/trivy:latest
     container_name: trivy-server
     command: ["server", "--listen", "0.0.0.0:8080", "--cache-dir", "/var/trivy/cache"]
     ports:
