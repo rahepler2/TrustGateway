@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
   # ---------------------------------------------------------------------------
   # Nexus Repository Manager — central package/container registry
