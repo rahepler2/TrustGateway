@@ -141,6 +141,9 @@ class NexusClient:
         except subprocess.TimeoutExpired:
             log.error("docker pull timed out")
             return None
+        except Exception as e:
+            log.error(f"docker pull exception: {type(e).__name__}: {e}")
+            return None
         if result.returncode != 0:
             log.error(f"docker pull failed: {result.stderr[:300]}")
             return None
@@ -152,6 +155,9 @@ class NexusClient:
             result = subprocess.run(save_cmd, capture_output=True, text=True, timeout=300)
         except subprocess.TimeoutExpired:
             log.error("docker save timed out")
+            return None
+        except Exception as e:
+            log.error(f"docker save exception: {type(e).__name__}: {e}")
             return None
         if result.returncode != 0:
             log.error(f"docker save failed: {result.stderr[:300]}")

@@ -181,7 +181,9 @@ def create_app():
                     "verdict": verdict.value, "report": str(report),
                 }
             except Exception as e:
-                done_results[jid] = {"package": p, "version": v, "error": str(e)}
+                err_msg = str(e) or f"{type(e).__name__}"
+                log.error(f"Scan error for {p}=={v}: {type(e).__name__}: {e}", exc_info=True)
+                done_results[jid] = {"package": p, "version": v, "error": err_msg}
             remaining = max(0, wait - (time.time() - start))
 
         any_fail = any(d.get("verdict") not in ("pass", "warn") for d in done_results.values())
