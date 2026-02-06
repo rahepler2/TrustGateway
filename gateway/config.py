@@ -37,6 +37,8 @@ class NexusConfig:
     docker_trusted_port: int = int(os.getenv("NEXUS_DOCKER_TRUSTED_PORT", "9444"))
     docker_proxy_port: int = int(os.getenv("NEXUS_DOCKER_PROXY_PORT", "9445"))
     docker_quarantine_port: int = int(os.getenv("NEXUS_DOCKER_QUARANTINE_PORT", "9446"))
+    # Docker push goes through host daemon (socket mount), not compose network
+    docker_registry_host: str = os.getenv("DOCKER_REGISTRY_HOST", "localhost")
     # Maven
     maven_proxy_repo: str = os.getenv("NEXUS_MAVEN_PROXY", "maven-upstream")
     maven_trusted_repo: str = os.getenv("NEXUS_MAVEN_TRUSTED", "maven-trusted")

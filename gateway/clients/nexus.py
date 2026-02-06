@@ -257,8 +257,11 @@ class NexusClient:
         return False
 
     def _upload_docker(self, repo_name: str, package_file: Path) -> bool:
-        """Push a Docker image to a Nexus Docker hosted repo via docker tag + push."""
-        # Resolve the Nexus Docker registry port for this repo
+        """Push a Docker image to a Nexus Docker hosted repo via skopeo.
+
+        Uses skopeo copy (runs inside the container on the compose network)
+        so no host Docker daemon config or insecure-registry changes needed.
+        """
         port_map = {
             self.config.docker_trusted_repo: self.config.docker_trusted_port,
             self.config.docker_quarantine_repo: self.config.docker_quarantine_port,
@@ -269,50 +272,45 @@ class NexusClient:
             log.warning(f"No Docker port configured for repo '{repo_name}', skipping push")
             return False
 
-        # Extract the original image:tag from the tarball filename (e.g. nginx-1.25.tar)
-        stem = package_file.stem  # "nginx-1.25" or "grafana_grafana-10.4.1"
-        # Reconstruct image:tag — the tarball was saved by _download_docker
-        # Format: {safe_name}-{tag}.tar where safe_name = image.replace("/","_").replace(":","_")
-        # We need the original image reference, so read it from the tarball
+        # Read the original image:tag from the tarball manifest
         try:
             import json as _json
             import tarfile
             with tarfile.open(package_file, "r:") as tf:
                 manifest = _json.loads(tf.extractfile("manifest.json").read())
                 repo_tags = manifest[0].get("RepoTags", [])
-                if repo_tags:
-                    original_ref = repo_tags[0]
-                else:
+                if not repo_tags:
                     log.error("No RepoTags in Docker tarball manifest")
                     return False
+                original_ref = repo_tags[0]
         except Exception as e:
             log.error(f"Failed to read Docker tarball manifest: {e}")
             return False
 
-        # Get Nexus host (use hostname from base_url)
+        # Use compose-internal hostname (nexus) — skopeo runs inside the container
         nexus_host = urlparse(self.base).hostname
-        target_ref = f"{nexus_host}:{port}/{original_ref}"
+        dest = f"docker://{nexus_host}:{port}/{original_ref}"
+        creds = f"{self.config.username}:{self.config.password}"
 
-        log.info(f"Tagging {original_ref} → {target_ref}")
-        tag_cmd = ["docker", "tag", original_ref, target_ref]
+        log.info(f"Pushing {original_ref} -> {nexus_host}:{port} via skopeo")
+        cmd = [
+            "skopeo", "copy",
+            f"docker-archive:{package_file}",
+            dest,
+            "--dest-tls-verify=false",
+            f"--dest-creds={creds}",
+        ]
         try:
-            result = subprocess.run(tag_cmd, capture_output=True, text=True, timeout=30)
-        except Exception as e:
-            log.error(f"docker tag exception: {type(e).__name__}: {e}")
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+        except subprocess.TimeoutExpired:
+            log.error("skopeo copy timed out")
             return False
-        if result.returncode != 0:
-            log.error(f"docker tag failed: {result.stderr[:300]}")
+        except Exception as e:
+            log.error(f"skopeo copy exception: {type(e).__name__}: {e}")
             return False
 
-        log.info(f"Pushing {target_ref}")
-        push_cmd = ["docker", "push", target_ref]
-        try:
-            result = subprocess.run(push_cmd, capture_output=True, text=True, timeout=600)
-        except Exception as e:
-            log.error(f"docker push exception: {type(e).__name__}: {e}")
-            return False
         if result.returncode != 0:
-            log.error(f"docker push failed: {result.stderr[:300]}")
+            log.error(f"skopeo copy failed: {result.stderr[:500]}")
             return False
 
         log.info(f"Pushed {original_ref} to {repo_name} (port {port})")
