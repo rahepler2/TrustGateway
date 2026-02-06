@@ -36,6 +36,7 @@ class NexusConfig:
     docker_group_port: int = int(os.getenv("NEXUS_DOCKER_GROUP_PORT", "9443"))
     docker_trusted_port: int = int(os.getenv("NEXUS_DOCKER_TRUSTED_PORT", "9444"))
     docker_proxy_port: int = int(os.getenv("NEXUS_DOCKER_PROXY_PORT", "9445"))
+    docker_quarantine_port: int = int(os.getenv("NEXUS_DOCKER_QUARANTINE_PORT", "9446"))
     # Maven
     maven_proxy_repo: str = os.getenv("NEXUS_MAVEN_PROXY", "maven-upstream")
     maven_trusted_repo: str = os.getenv("NEXUS_MAVEN_TRUSTED", "maven-trusted")

@@ -209,6 +209,8 @@ class NexusClient:
 
         if ecosystem.lower() == "pypi":
             return self._upload_pypi(repo_name, package_file)
+        if ecosystem.lower() == "docker":
+            return self._upload_docker(repo_name, package_file)
         return self._upload_raw(repo_name, package_file)
 
     def _upload_pypi(self, repo_name: str, package_file: Path) -> bool:
@@ -253,6 +255,68 @@ class NexusClient:
             return True
         log.error(f"Fallback upload failed ({resp.status_code}): {resp.text[:300]}")
         return False
+
+    def _upload_docker(self, repo_name: str, package_file: Path) -> bool:
+        """Push a Docker image to a Nexus Docker hosted repo via docker tag + push."""
+        # Resolve the Nexus Docker registry port for this repo
+        port_map = {
+            self.config.docker_trusted_repo: self.config.docker_trusted_port,
+            self.config.docker_quarantine_repo: self.config.docker_quarantine_port,
+            self.config.docker_group_repo: self.config.docker_group_port,
+        }
+        port = port_map.get(repo_name)
+        if not port:
+            log.warning(f"No Docker port configured for repo '{repo_name}', skipping push")
+            return False
+
+        # Extract the original image:tag from the tarball filename (e.g. nginx-1.25.tar)
+        stem = package_file.stem  # "nginx-1.25" or "grafana_grafana-10.4.1"
+        # Reconstruct image:tag — the tarball was saved by _download_docker
+        # Format: {safe_name}-{tag}.tar where safe_name = image.replace("/","_").replace(":","_")
+        # We need the original image reference, so read it from the tarball
+        try:
+            import json as _json
+            import tarfile
+            with tarfile.open(package_file, "r:") as tf:
+                manifest = _json.loads(tf.extractfile("manifest.json").read())
+                repo_tags = manifest[0].get("RepoTags", [])
+                if repo_tags:
+                    original_ref = repo_tags[0]
+                else:
+                    log.error("No RepoTags in Docker tarball manifest")
+                    return False
+        except Exception as e:
+            log.error(f"Failed to read Docker tarball manifest: {e}")
+            return False
+
+        # Get Nexus host (use hostname from base_url)
+        nexus_host = urlparse(self.base).hostname
+        target_ref = f"{nexus_host}:{port}/{original_ref}"
+
+        log.info(f"Tagging {original_ref} → {target_ref}")
+        tag_cmd = ["docker", "tag", original_ref, target_ref]
+        try:
+            result = subprocess.run(tag_cmd, capture_output=True, text=True, timeout=30)
+        except Exception as e:
+            log.error(f"docker tag exception: {type(e).__name__}: {e}")
+            return False
+        if result.returncode != 0:
+            log.error(f"docker tag failed: {result.stderr[:300]}")
+            return False
+
+        log.info(f"Pushing {target_ref}")
+        push_cmd = ["docker", "push", target_ref]
+        try:
+            result = subprocess.run(push_cmd, capture_output=True, text=True, timeout=600)
+        except Exception as e:
+            log.error(f"docker push exception: {type(e).__name__}: {e}")
+            return False
+        if result.returncode != 0:
+            log.error(f"docker push failed: {result.stderr[:300]}")
+            return False
+
+        log.info(f"Pushed {original_ref} to {repo_name} (port {port})")
+        return True
 
     def _upload_raw(self, repo_name: str, package_file: Path) -> bool:
         """Upload non-PyPI artifacts via the Nexus components API."""

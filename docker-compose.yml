@@ -10,6 +10,7 @@ services:
       - "9443:9443"     # Docker group (developer pull)
       - "9444:9444"     # Docker trusted (hosted)
       - "9445:9445"     # Docker upstream proxy
+      - "9446:9446"     # Docker quarantine (hosted)
     volumes:
       - nexus-data:/nexus-data
     environment:

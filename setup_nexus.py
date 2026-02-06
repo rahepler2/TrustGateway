@@ -74,6 +74,7 @@ ECOSYSTEMS = {
             "group": 9443,
             "trusted": 9444,
             "upstream": 9445,
+            "quarantine": 9446,
         },
     },
     "maven": {
