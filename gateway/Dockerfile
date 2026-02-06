@@ -1,9 +1,17 @@
 FROM python:3.11-slim
 
-# System deps + package managers needed for downloading artifacts
+# System deps (minimal)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl ca-certificates git gnupg unzip build-essential jq \
-    npm docker.io \
+    curl ca-certificates git gnupg unzip jq \
+    && rm -rf /var/lib/apt/lists/*
+
+# Docker CLI only (not the full engine — we use the host daemon via socket mount)
+RUN curl -fsSL https://download.docker.com/linux/static/stable/x86_64/docker-27.5.1.tgz \
+    | tar -xz --strip-components=1 -C /usr/local/bin docker/docker
+
+# npm (standalone via Node, needed for npm pack downloads)
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
 
 # Syft (SBOM generator)
@@ -11,7 +19,7 @@ ENV SYFT_VERSION=1.4.1
 RUN curl -sSL "https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_linux_amd64.tar.gz" \
     | tar -xz -C /usr/local/bin syft
 
-# Trivy client (calls the Trivy server, also supports local fs scans)
+# Trivy client (thin client — sends scans to trivy-server, no local DB needed)
 ENV TRIVY_VERSION=0.58.2
 RUN curl -sSL "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" \
     | tar -xz -C /usr/local/bin trivy
