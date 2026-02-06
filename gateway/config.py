@@ -117,11 +117,6 @@ if not DATABASE_URL:
     _pg_db = os.getenv("PG_DB", "gatewaydb")
     DATABASE_URL = f"postgresql://{_pg_user}:{_pg_pass}@postgres:5432/{_pg_db}"
 
-MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "http://minio:9000")
-MINIO_BUCKET = os.getenv("MINIO_BUCKET", "scan-reports")
-MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "")
-MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "")
-
 # Workers
 SCAN_WORKERS = int(os.getenv("SCAN_WORKERS", "3"))
 

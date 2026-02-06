@@ -85,12 +85,12 @@ def _complete_job(job_id: str, future: Future):
             return
         now = datetime.now(timezone.utc)
         try:
-            verdict, report = future.result(timeout=0)
+            verdict, report, scan_summary = future.result(timeout=0)
             if verdict.value in ("pass", "warn"):
                 job.status = JobStatus.done
             else:
                 job.status = JobStatus.failed
-            job.result = {"verdict": verdict.value, "report": str(report)}
+            job.result = {"verdict": verdict.value, "report": str(report), **scan_summary}
         except Exception as e:
             job.status = JobStatus.failed
             job.result = {"verdict": "error", "error": str(e) or type(e).__name__}
@@ -131,7 +131,7 @@ def get_job_status(job_id: str) -> Dict:
     result = None
     if future.done():
         try:
-            verdict, report = future.result(timeout=0)
+            verdict, report, _summary = future.result(timeout=0)
             status = "done"
             result = {"verdict": verdict.value, "report": str(report)}
         except Exception as e:
@@ -249,7 +249,7 @@ def create_app():
         for jid, (p, v) in zip(job_ids, pkg_list):
             fut = JOBS[jid]["future"]
             try:
-                verdict, report = fut.result(timeout=remaining)
+                verdict, report, _summary = fut.result(timeout=remaining)
                 done_results[jid] = {
                     "package": p, "version": v,
                     "verdict": verdict.value, "report": str(report),
@@ -365,7 +365,7 @@ def cmd_scan(args):
             log.warning(f"Skipping unpinned spec '{spec}'. Use pkg==version.")
             overall_rc = 2
             continue
-        verdict, report = GATEWAY.process_package(pkg, ver, ecosystem)
+        verdict, report, _summary = GATEWAY.process_package(pkg, ver, ecosystem)
         print(f"\nVerdict for {pkg}=={ver}: {verdict.value.upper()}")
         print(f"Report: {report}")
         if verdict == ScanVerdict.FAIL:
@@ -385,7 +385,7 @@ def cmd_bulk(args):
             if ver is None:
                 log.warning(f"Skipping '{line}' — must use package==version")
                 continue
-            verdict, report = GATEWAY.process_package(pkg, ver, ecosystem)
+            verdict, report, _summary = GATEWAY.process_package(pkg, ver, ecosystem)
             results.append((pkg, ver, verdict))
 
     print("\n" + "=" * 60)

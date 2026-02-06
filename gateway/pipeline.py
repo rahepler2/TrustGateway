@@ -5,6 +5,7 @@ Coordinates: download → extract → Trivy → OSSF → OSV → Syft → evalua
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import shutil
@@ -31,6 +32,55 @@ ECOSYSTEM_MAP = {
     "nuget": "NuGet",
     "docker": "Docker",
 }
+
+
+def _extract_scan_summary(all_results: dict, sbom_file: str | None) -> dict:
+    """Extract summary metrics from raw scan results for database storage."""
+    trivy = all_results.get("trivy", {})
+    cve_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0, "unknown": 0}
+    for result in trivy.get("Results", []) or []:
+        for vuln in result.get("Vulnerabilities", []) or []:
+            sev = vuln.get("Severity", "UNKNOWN").lower()
+            if sev in cve_counts:
+                cve_counts[sev] += 1
+
+    secrets_count = sum(
+        len(r.get("Secrets", []) or [])
+        for r in trivy.get("Results", []) or []
+    )
+
+    sbom = all_results.get("sbom", {})
+    sbom_summary = {
+        "component_count": sbom.get("component_count", 0),
+        "format": sbom.get("format", "unknown"),
+        "licenses": [],
+    }
+
+    # Read SBOM file for license data
+    if sbom_file and Path(sbom_file).exists():
+        try:
+            with open(sbom_file) as f:
+                sbom_data = json.load(f)
+            seen = set()
+            for comp in sbom_data.get("components", []):
+                for lic in comp.get("licenses", []):
+                    lid = (
+                        lic.get("license", {}).get("id")
+                        or lic.get("license", {}).get("name", "")
+                    )
+                    if lid and lid not in seen:
+                        seen.add(lid)
+                        sbom_summary["licenses"].append(lid)
+        except Exception:
+            pass
+
+    return {
+        "trivy": cve_counts,
+        "secrets": secrets_count,
+        "sbom": sbom_summary,
+        "ossf_skipped": all_results.get("ossf", {}).get("skipped", True),
+        "osv_count": len(all_results.get("osv", {}).get("results", []) or []),
+    }
 
 
 def extract_package(package_path: Path, extract_dir: Path) -> Path:
@@ -82,11 +132,11 @@ class TrustGateway:
         package: str,
         version: str,
         ecosystem: str = "pypi",
-    ) -> Tuple[ScanVerdict, Path]:
+    ) -> Tuple[ScanVerdict, Path, dict]:
         """
         Full scanning pipeline for any ecosystem.
 
-        Returns (verdict, report_path).
+        Returns (verdict, report_path, scan_summary).
         """
         eco_lower = ecosystem.lower()
         eco_osv = ECOSYSTEM_MAP.get(eco_lower, "PyPI")
@@ -102,7 +152,7 @@ class TrustGateway:
             repos["trusted"], package, version
         ):
             log.info(f"{package}=={version} already in trusted repo — skipping")
-            return ScanVerdict.PASS, Path("/dev/null")
+            return ScanVerdict.PASS, Path("/dev/null"), {}
 
         with tempfile.TemporaryDirectory(prefix="trust-gateway-", dir="/data") as tmpdir:
             work_dir = Path(tmpdir)
@@ -120,7 +170,7 @@ class TrustGateway:
             )
             if not package_file:
                 log.error(f"Failed to download {package}=={version}")
-                return ScanVerdict.ERROR, Path("/dev/null")
+                return ScanVerdict.ERROR, Path("/dev/null"), {}
 
             # Step 2: Extract (skip for Docker — Trivy scans images directly)
             if is_docker:
@@ -195,9 +245,14 @@ class TrustGateway:
                     repos["quarantine"], package_file, ecosystem=eco_lower
                 )
 
+            # Extract enriched summary for database storage
+            sbom_file = sbom_results.get("output_file")
+            scan_summary = _extract_scan_summary(all_results, sbom_file)
+            scan_summary["reasons"] = reasons
+
             # Persist report outside temp dir
             persistent_report = Path("scan-reports") / report_path.name
             persistent_report.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(report_path, persistent_report)
 
-            return verdict, persistent_report
+            return verdict, persistent_report, scan_summary

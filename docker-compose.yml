@@ -90,30 +90,6 @@ services:
       - security-net
 
   # ---------------------------------------------------------------------------
-  # MinIO — S3-compatible object storage for scan reports + SBOMs
-  # ---------------------------------------------------------------------------
-  minio:
-    image: minio/minio:latest
-    container_name: minio
-    environment:
-      - MINIO_ROOT_USER=${MINIO_ROOT_USER}
-      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
-    command: server /data --console-address ":9001"
-    ports:
-      - "9000:9000"   # S3 API
-      - "9001:9001"   # Console
-    volumes:
-      - minio-data:/data
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
-    networks:
-      - security-net
-
-  # ---------------------------------------------------------------------------
   # Grafana — dashboarding, auditing, threat visibility
   # ---------------------------------------------------------------------------
   grafana:
@@ -165,11 +141,6 @@ services:
       - POLICY_BLOCK_MALWARE=${POLICY_BLOCK_MALWARE:-true}
       # Database
       - DATABASE_URL=postgresql://${PG_USER}:${PG_PASS}@postgres:5432/${PG_DB:-gatewaydb}
-      # MinIO
-      - MINIO_ENDPOINT=http://minio:9000
-      - MINIO_ACCESS_KEY=${MINIO_ROOT_USER}
-      - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD}
-      - MINIO_BUCKET=${MINIO_BUCKET:-scan-reports}
       # Docker registry ports
       - NEXUS_DOCKER_GROUP_PORT=${NEXUS_DOCKER_GROUP_PORT:-9443}
       - NEXUS_DOCKER_TRUSTED_PORT=${NEXUS_DOCKER_TRUSTED_PORT:-9444}
@@ -184,8 +155,6 @@ services:
       trivy-server:
         condition: service_healthy
       postgres:
-        condition: service_healthy
-      minio:
         condition: service_healthy
     volumes:
       - ./gateway/scan-reports:/app/scan-reports
@@ -222,7 +191,6 @@ volumes:
   nexus-data:
   trivy-cache:
   pg-data:
-  minio-data:
   grafana-data:
 
 networks:
