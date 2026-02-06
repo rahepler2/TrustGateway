@@ -1,16 +1,18 @@
 <#
 .SYNOPSIS
-    Nexus Trust Gateway — Developer CLI wrapper (PowerShell)
+    Nexus Trust Gateway — Developer CLI (PowerShell)
 
 .DESCRIPTION
-    Submits packages/containers to the Trust Gateway for security scanning
-    before they are promoted to the trusted Nexus repository.
+    Scans packages/containers through the Trust Gateway before they are
+    promoted to trusted Nexus repositories.
 
 .EXAMPLE
-    .\nexus-request.ps1 submit -Package "requests==2.31.0"
-    .\nexus-request.ps1 submit -Package "nginx==1.25" -Ecosystem docker
-    .\nexus-request.ps1 submit-batch -Requirements requirements.txt
-    .\nexus-request.ps1 status -Job "abc-123"
+    .\nexus-request.ps1 scan requests==2.32.3
+    .\nexus-request.ps1 scan requests 2.32.3
+    .\nexus-request.ps1 scan nginx:1.25 -e docker
+    .\nexus-request.ps1 scan -f requirements.txt
+    .\nexus-request.ps1 status <job_id>
+    .\nexus-request.ps1 status -Batch <batch_id>
 
 .NOTES
     Environment variables:
@@ -20,47 +22,57 @@
 
 param(
     [Parameter(Position=0, Mandatory=$true)]
-    [ValidateSet("submit", "submit-batch", "status")]
+    [ValidateSet("scan", "status")]
     [string]$Command,
 
-    [string]$Package,
-    [string]$Requirements,
-    [string]$Ecosystem = "pypi",
+    [Parameter(Position=1, ValueFromRemainingArguments=$true)]
+    [string[]]$Args_,
+
+    [Alias("f")]
+    [string]$File,
+
+    [Alias("e")]
+    [string]$Ecosystem,
+
+    [Alias("w")]
     [int]$Wait = 120,
-    [string]$Job,
+
+    [Alias("b")]
     [string]$Batch
 )
 
 $ErrorActionPreference = "Stop"
 
-$GatewayUrl = if ($env:TRUST_GATEWAY_URL) { $env:TRUST_GATEWAY_URL } else { "http://localhost:5000" }
-$GatewayUrl = $GatewayUrl.TrimEnd("/")
+$GatewayUrl = if ($env:TRUST_GATEWAY_URL) { $env:TRUST_GATEWAY_URL.TrimEnd("/") } else { "http://localhost:5000" }
 
-$Headers = @{ "Accept" = "application/json" }
+$Headers = @{ "Accept" = "application/json"; "Content-Type" = "application/json" }
 if ($env:TRUST_GATEWAY_KEY) {
     $Headers["Authorization"] = "Bearer $($env:TRUST_GATEWAY_KEY)"
 }
 
-function Write-Status($msg) {
-    Write-Host "[INFO] $msg" -ForegroundColor Cyan
-}
-
-function Write-Result($json) {
-    $json | ConvertTo-Json -Depth 10
+$FileEcoMap = @{
+    "requirements.txt"  = "pypi"
+    "constraints.txt"   = "pypi"
+    "package.json"      = "npm"
+    "package-lock.json" = "npm"
+    "pom.xml"           = "maven"
+    "build.gradle"      = "maven"
+    "packages.config"   = "nuget"
 }
 
 function Wait-ForJob($jobId, $timeout) {
+    $short = $jobId.Substring(0, [Math]::Min(8, $jobId.Length))
     $start = Get-Date
-    Write-Status "Scanning job $($jobId.Substring(0,8))... please wait."
     while (((Get-Date) - $start).TotalSeconds -lt $timeout) {
         try {
-            $r = Invoke-RestMethod -Uri "$GatewayUrl/job/$jobId" -Headers $Headers -TimeoutSec 10
+            $r = Invoke-RestMethod -Uri "$GatewayUrl/job/$jobId" -Headers @{ "Accept"="application/json" } -TimeoutSec 10
             if ($r.status -eq "done" -or $r.status -eq "error") {
+                Write-Host ""
                 return $r
             }
         } catch {}
         $elapsed = [int]((Get-Date) - $start).TotalSeconds
-        Write-Host "`r[INFO] Scanning... ($($elapsed)s elapsed)" -NoNewline
+        Write-Host "`r  Scanning $short... ${elapsed}s" -NoNewline
         Start-Sleep -Seconds 3
     }
     Write-Host ""
@@ -68,27 +80,87 @@ function Wait-ForJob($jobId, $timeout) {
 }
 
 switch ($Command) {
-    "submit" {
-        if (-not $Package) { Write-Error "Provide -Package 'pkg==version'"; exit 2 }
-        Write-Status "Submitting $Package ($Ecosystem) to Trust Gateway..."
+    "scan" {
+        # File-based batch scan
+        if ($File) {
+            $eco = $Ecosystem
+            if (-not $eco) {
+                $base = (Split-Path $File -Leaf).ToLower()
+                $eco = $FileEcoMap[$base]
+                if (-not $eco) { $eco = "pypi" }
+            }
+            Write-Host "Scanning $File ($eco)..."
 
-        $body = @{
-            package   = $Package
-            wait      = $Wait
-            ecosystem = $Ecosystem
-        } | ConvertTo-Json
+            $filePath = Resolve-Path $File
+            $boundary = [System.Guid]::NewGuid().ToString()
+            $fileBytes = [System.IO.File]::ReadAllBytes($filePath)
+            $fileContent = [System.Text.Encoding]::UTF8.GetString($fileBytes)
+
+            $bodyLines = @(
+                "--$boundary",
+                "Content-Disposition: form-data; name=`"requirements`"; filename=`"$(Split-Path $filePath -Leaf)`"",
+                "Content-Type: text/plain", "",
+                $fileContent,
+                "--$boundary",
+                "Content-Disposition: form-data; name=`"wait`"", "",
+                "$Wait",
+                "--$boundary",
+                "Content-Disposition: form-data; name=`"ecosystem`"", "",
+                "$eco",
+                "--$boundary--"
+            )
+
+            try {
+                $resp = Invoke-RestMethod -Uri "$GatewayUrl/request/batch" -Method Post `
+                    -ContentType "multipart/form-data; boundary=$boundary" `
+                    -Body ($bodyLines -join "`r`n") -TimeoutSec ($Wait + 30)
+                $resp | ConvertTo-Json -Depth 10
+            } catch {
+                Write-Error "Batch request failed: $_"
+                exit 2
+            }
+            return
+        }
+
+        # Single package scan — build spec from positional args
+        if (-not $Args_ -or $Args_.Count -eq 0) {
+            Write-Error "Provide a package name or use -f <file>"
+            exit 2
+        }
+
+        if ($Args_.Count -ge 2) {
+            $name = $Args_[0]
+            $ver  = $Args_[1]
+            if ($name -match "==" -or $name -match ":") {
+                $spec = $name
+            } else {
+                $spec = "$name==$ver"
+            }
+        } else {
+            $spec = $Args_[0]
+        }
+
+        # Auto-detect docker from colon notation
+        $eco = $Ecosystem
+        if (-not $eco -and $spec -match ":" -and $spec -notmatch "==") {
+            $eco = "docker"
+        }
+        if (-not $eco) { $eco = "pypi" }
+
+        Write-Host "Scanning $spec ($eco)..."
+
+        $body = @{ package = $spec; ecosystem = $eco; wait = $Wait } | ConvertTo-Json
 
         try {
             $resp = Invoke-RestMethod -Uri "$GatewayUrl/request" -Method Post `
-                -Headers $Headers -ContentType "application/json" -Body $body -TimeoutSec ($Wait + 10)
-            Write-Result $resp
+                -Headers $Headers -Body $body -TimeoutSec ($Wait + 10)
+            $resp | ConvertTo-Json -Depth 10
 
             if ($resp.job_ids) {
                 $allOk = $true
                 foreach ($jid in $resp.job_ids) {
                     $result = Wait-ForJob $jid $Wait
-                    Write-Host ""
-                    Write-Result $result
+                    $result | ConvertTo-Json -Depth 10
                     if ($result.result.verdict -notin @("pass", "warn")) { $allOk = $false }
                 }
                 exit $(if ($allOk) { 0 } else { 1 })
@@ -99,53 +171,15 @@ switch ($Command) {
         }
     }
 
-    "submit-batch" {
-        if (-not $Requirements) { Write-Error "Provide -Requirements path"; exit 2 }
-        Write-Status "Uploading $Requirements for batch scanning ($Ecosystem)..."
-
-        $uri = "$GatewayUrl/request/batch"
-        $filePath = Resolve-Path $Requirements
-        $boundary = [System.Guid]::NewGuid().ToString()
-        $fileBytes = [System.IO.File]::ReadAllBytes($filePath)
-        $fileContent = [System.Text.Encoding]::UTF8.GetString($fileBytes)
-
-        $bodyLines = @(
-            "--$boundary",
-            "Content-Disposition: form-data; name=`"requirements`"; filename=`"$(Split-Path $filePath -Leaf)`"",
-            "Content-Type: text/plain",
-            "",
-            $fileContent,
-            "--$boundary",
-            "Content-Disposition: form-data; name=`"wait`"",
-            "",
-            "$Wait",
-            "--$boundary",
-            "Content-Disposition: form-data; name=`"ecosystem`"",
-            "",
-            "$Ecosystem",
-            "--$boundary--"
-        )
-        $bodyStr = $bodyLines -join "`r`n"
-
-        try {
-            $resp = Invoke-RestMethod -Uri $uri -Method Post -Headers $Headers `
-                -ContentType "multipart/form-data; boundary=$boundary" -Body $bodyStr -TimeoutSec ($Wait + 30)
-            Write-Result $resp
-        } catch {
-            Write-Error "Batch request failed: $_"
-            exit 2
-        }
-    }
-
     "status" {
-        if ($Job) {
-            $r = Invoke-RestMethod -Uri "$GatewayUrl/job/$Job" -Headers $Headers -TimeoutSec 10
-            Write-Result $r
-        } elseif ($Batch) {
-            $r = Invoke-RestMethod -Uri "$GatewayUrl/batch/$Batch/status" -Headers $Headers -TimeoutSec 10
-            Write-Result $r
+        if ($Batch) {
+            $r = Invoke-RestMethod -Uri "$GatewayUrl/batch/$Batch/status" -Headers @{ "Accept"="application/json" } -TimeoutSec 10
+            $r | ConvertTo-Json -Depth 10
+        } elseif ($Args_ -and $Args_.Count -gt 0) {
+            $r = Invoke-RestMethod -Uri "$GatewayUrl/job/$($Args_[0])" -Headers @{ "Accept"="application/json" } -TimeoutSec 10
+            $r | ConvertTo-Json -Depth 10
         } else {
-            Write-Error "Provide -Job <id> or -Batch <id>"
+            Write-Error "Provide a job ID or -Batch <batch_id>"
             exit 2
         }
     }
