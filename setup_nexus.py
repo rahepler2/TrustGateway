@@ -237,6 +237,28 @@ class NexusSetup:
         """API path format — differs from privilege format for Maven."""
         return eco.get("api_format", eco["format"])
 
+    def _ensure_docker_port(self, name, api_fmt, repo_type, port):
+        """Update an existing Docker repo to add/fix the HTTP connector port."""
+        # Use the format-specific GET (returns full config, not the summary)
+        resp = self._api("GET", f"v1/repositories/{api_fmt}/{repo_type}/{name}")
+        if resp.status_code != 200:
+            print(f"    WARN  could not read {name} config (HTTP {resp.status_code})")
+            return True
+        config = resp.json()
+        docker_cfg = config.get("docker", {})
+        if docker_cfg.get("httpPort") == port:
+            print(f"    SKIP  already exists (port {port} OK)")
+            return True
+        print(f"    Updating {name} HTTP connector → port {port}")
+        docker_cfg["httpPort"] = port
+        config["docker"] = docker_cfg
+        resp = self._api("PUT", f"v1/repositories/{api_fmt}/{repo_type}/{name}", json=config)
+        if resp.status_code in (200, 204):
+            print(f"    OK    updated {name} → port {port}")
+            return True
+        print(f"    WARN  failed to update port on {name} (HTTP {resp.status_code}): {resp.text[:300]}")
+        return True
+
     def create_proxy_repo(self, eco):
         fmt = eco["format"]
         api_fmt = self._api_fmt(eco)
@@ -248,6 +270,8 @@ class NexusSetup:
         if self.dry_run:
             return True
         if self._repo_exists(name):
+            if fmt == "docker" and port:
+                return self._ensure_docker_port(name, api_fmt, "proxy", port)
             print(f"    SKIP  already exists")
             return True
 
@@ -292,6 +316,9 @@ class NexusSetup:
         if self.dry_run:
             return True
         if self._repo_exists(name):
+            # For Docker repos, ensure the HTTP port is set (may have been added later)
+            if fmt == "docker" and port:
+                return self._ensure_docker_port(name, api_fmt, "hosted", port)
             print(f"    SKIP  already exists")
             return True
 
@@ -327,6 +354,8 @@ class NexusSetup:
         if self.dry_run:
             return True
         if self._repo_exists(name):
+            if fmt == "docker" and port:
+                return self._ensure_docker_port(name, api_fmt, "group", port)
             print(f"    SKIP  already exists")
             return True
 
