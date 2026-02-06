@@ -2,9 +2,11 @@
 # nexus-request — Bash wrapper for the Trust Gateway CLI
 #
 # Usage:
-#   ./nexus-request.sh submit -p "flask==3.0.0" -e pypi -w 120
-#   ./nexus-request.sh submit-batch -r requirements.txt -w 600
-#   ./nexus-request.sh status --job <job_id>
+#   ./nexus-request.sh scan requests==2.32.3
+#   ./nexus-request.sh scan requests 2.32.3
+#   ./nexus-request.sh scan nginx:1.25 -e docker
+#   ./nexus-request.sh scan -f requirements.txt
+#   ./nexus-request.sh status <job_id>
 #
 # Environment:
 #   TRUST_GATEWAY_URL  default: http://localhost:5000
