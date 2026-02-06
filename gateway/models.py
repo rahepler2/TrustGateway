@@ -5,7 +5,8 @@ from datetime import datetime
 import enum
 import uuid
 
-from sqlalchemy import Column, String, Integer, DateTime, Enum, JSON, ForeignKey
+from sqlalchemy import Column, String, Integer, DateTime, Enum, ForeignKey
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import declarative_base, relationship
 
 Base = declarative_base()
@@ -44,7 +45,7 @@ class Job(Base):
     ecosystem = Column(String(32), default="pypi", nullable=False)
     status = Column(Enum(JobStatus), default=JobStatus.submitted, nullable=False)
     attempts = Column(Integer, default=0)
-    result = Column(JSON, nullable=True)
+    result = Column(JSONB, nullable=True)
     report_url = Column(String(1024), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     started_at = Column(DateTime, nullable=True)
