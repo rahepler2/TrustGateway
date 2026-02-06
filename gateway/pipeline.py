@@ -104,7 +104,7 @@ class TrustGateway:
             log.info(f"{package}=={version} already in trusted repo — skipping")
             return ScanVerdict.PASS, Path("/dev/null")
 
-        with tempfile.TemporaryDirectory(prefix="trust-gateway-") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="trust-gateway-", dir="/data") as tmpdir:
             work_dir = Path(tmpdir)
             download_dir = work_dir / "downloads"
             extract_dir = work_dir / "extracted"
