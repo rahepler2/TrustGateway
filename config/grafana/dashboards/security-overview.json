@@ -7,7 +7,7 @@
   "links": [],
   "panels": [
     {
-      "datasource": { "type": "postgres", "uid": "${DS_GATEWAY_POSTGRESQL}" },
+      "datasource": { "type": "postgres", "uid": "gateway-pg" },
       "fieldConfig": {
         "defaults": { "color": { "mode": "fixed", "fixedColor": "blue" }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] } },
         "overrides": []
@@ -20,7 +20,7 @@
       "targets": [{ "rawSql": "SELECT COUNT(*) AS total FROM jobs;", "refId": "A", "format": "table" }]
     },
     {
-      "datasource": { "type": "postgres", "uid": "${DS_GATEWAY_POSTGRESQL}" },
+      "datasource": { "type": "postgres", "uid": "gateway-pg" },
       "fieldConfig": {
         "defaults": { "color": { "mode": "fixed", "fixedColor": "green" }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] } },
         "overrides": []
@@ -33,7 +33,7 @@
       "targets": [{ "rawSql": "SELECT COUNT(*) AS passed FROM jobs WHERE status = 'done';", "refId": "A", "format": "table" }]
     },
     {
-      "datasource": { "type": "postgres", "uid": "${DS_GATEWAY_POSTGRESQL}" },
+      "datasource": { "type": "postgres", "uid": "gateway-pg" },
       "fieldConfig": {
         "defaults": { "color": { "mode": "fixed", "fixedColor": "red" }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }] } },
         "overrides": []
@@ -46,7 +46,7 @@
       "targets": [{ "rawSql": "SELECT COUNT(*) AS failed FROM jobs WHERE status = 'failed';", "refId": "A", "format": "table" }]
     },
     {
-      "datasource": { "type": "postgres", "uid": "${DS_GATEWAY_POSTGRESQL}" },
+      "datasource": { "type": "postgres", "uid": "gateway-pg" },
       "fieldConfig": {
         "defaults": { "color": { "mode": "fixed", "fixedColor": "purple" }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] } },
         "overrides": []
@@ -59,7 +59,7 @@
       "targets": [{ "rawSql": "SELECT COUNT(DISTINCT package) AS unique_pkgs FROM jobs;", "refId": "A", "format": "table" }]
     },
     {
-      "datasource": { "type": "postgres", "uid": "${DS_GATEWAY_POSTGRESQL}" },
+      "datasource": { "type": "postgres", "uid": "gateway-pg" },
       "fieldConfig": {
         "defaults": { "color": { "mode": "palette-classic" }, "custom": { "axisBorderShow": false, "drawStyle": "bars", "fillOpacity": 80, "stacking": { "group": "A", "mode": "normal" } }, "mappings": [] },
         "overrides": [
@@ -81,7 +81,7 @@
       }]
     },
     {
-      "datasource": { "type": "postgres", "uid": "${DS_GATEWAY_POSTGRESQL}" },
+      "datasource": { "type": "postgres", "uid": "gateway-pg" },
       "fieldConfig": {
         "defaults": { "color": { "mode": "palette-classic" }, "mappings": [] },
         "overrides": []
@@ -98,7 +98,7 @@
       }]
     },
     {
-      "datasource": { "type": "postgres", "uid": "${DS_GATEWAY_POSTGRESQL}" },
+      "datasource": { "type": "postgres", "uid": "gateway-pg" },
       "fieldConfig": {
         "defaults": { "color": { "mode": "palette-classic" }, "custom": { "align": "auto", "displayMode": "auto" }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] } },
         "overrides": [
@@ -121,7 +121,7 @@
       }]
     },
     {
-      "datasource": { "type": "postgres", "uid": "${DS_GATEWAY_POSTGRESQL}" },
+      "datasource": { "type": "postgres", "uid": "gateway-pg" },
       "fieldConfig": {
         "defaults": { "color": { "mode": "palette-classic" }, "custom": { "axisBorderShow": false, "drawStyle": "bars", "fillOpacity": 80, "stacking": { "group": "A", "mode": "normal" } }, "mappings": [] },
         "overrides": [
@@ -141,7 +141,7 @@
       }]
     },
     {
-      "datasource": { "type": "postgres", "uid": "${DS_GATEWAY_POSTGRESQL}" },
+      "datasource": { "type": "postgres", "uid": "gateway-pg" },
       "fieldConfig": {
         "defaults": { "color": { "mode": "fixed", "fixedColor": "semi-dark-blue" }, "mappings": [] },
         "overrides": []
@@ -158,7 +158,7 @@
       }]
     },
     {
-      "datasource": { "type": "postgres", "uid": "${DS_GATEWAY_POSTGRESQL}" },
+      "datasource": { "type": "postgres", "uid": "gateway-pg" },
       "fieldConfig": {
         "defaults": { "color": { "mode": "palette-classic" }, "custom": { "align": "auto", "displayMode": "auto" }, "mappings": [] },
         "overrides": [
@@ -180,19 +180,7 @@
   ],
   "schemaVersion": 39,
   "tags": ["security", "trust-gateway"],
-  "templating": {
-    "list": [
-      {
-        "current": { "selected": false, "text": "Gateway PostgreSQL", "value": "Gateway PostgreSQL" },
-        "hide": 2,
-        "includeAll": false,
-        "name": "DS_GATEWAY_POSTGRESQL",
-        "options": [],
-        "query": "postgres",
-        "type": "datasource"
-      }
-    ]
-  },
+  "templating": { "list": [] },
   "time": { "from": "now-7d", "to": "now" },
   "title": "Trust Gateway — Security Overview",
   "uid": "trust-gateway-overview"

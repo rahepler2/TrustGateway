@@ -123,6 +123,9 @@ SCAN_WORKERS = int(os.getenv("SCAN_WORKERS", "3"))
 # API key (simple protection until LDAP/AD)
 API_KEY = os.getenv("TRUST_GATEWAY_API_KEY")
 
+# Scheduled rescan interval in seconds (0 = disabled, default 6h)
+RESCAN_INTERVAL = int(os.getenv("RESCAN_INTERVAL", "21600"))
+
 # Flask
 FLASK_HOST = os.getenv("FLASK_HOST", "0.0.0.0")
 FLASK_PORT = int(os.getenv("FLASK_PORT", "5000"))

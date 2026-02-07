@@ -12,8 +12,6 @@ Usage:
   nexus-request scan maven org.apache.commons:commons-lang3:3.14.0
   nexus-request scan python -f requirements.txt
   nexus-request scan npm -f package-lock.json
-  nexus-request rescan python
-  nexus-request rescan --all
   nexus-request status <job_id>
   nexus-request status --batch <batch_id>
 
@@ -143,18 +141,6 @@ def api_job(job_id: str) -> dict:
 
 def api_batch(batch_id: str) -> dict:
     resp = requests.get(f"{GATEWAY_URL}/batch/{batch_id}/status", headers=_headers(), timeout=10)
-    try:
-        return {"code": resp.status_code, "body": resp.json()}
-    except Exception:
-        return {"code": resp.status_code, "body": resp.text}
-
-
-def api_rescan(ecosystem: str | None) -> dict:
-    url = f"{GATEWAY_URL}/rescan"
-    payload = {}
-    if ecosystem:
-        payload["ecosystem"] = ecosystem
-    resp = requests.post(url, headers=_headers(), json=payload, timeout=30)
     try:
         return {"code": resp.status_code, "body": resp.json()}
     except Exception:
@@ -333,36 +319,6 @@ def cmd_scan(args):
     sys.exit(2)
 
 
-def cmd_rescan(args):
-    if args.all:
-        ecosystem = None
-        print("Requesting rescan of ALL trusted packages...")
-    else:
-        ecosystem = _resolve_ecosystem(args.ecosystem) if args.ecosystem else None
-        if args.ecosystem and not ecosystem:
-            print(f"Error: unknown ecosystem '{args.ecosystem}'")
-            sys.exit(2)
-        if not ecosystem:
-            print("Error: specify an ecosystem or use --all")
-            print("  Example: nexus-request rescan python")
-            print("  Example: nexus-request rescan --all")
-            sys.exit(2)
-        print(f"Requesting rescan of all trusted {ecosystem} packages...")
-
-    resp = api_rescan(ecosystem)
-    body = resp["body"] if isinstance(resp["body"], dict) else {}
-
-    if resp["code"] in (200, 202):
-        count = body.get("packages_queued", 0)
-        batch_id = body.get("batch_id")
-        print(f"  Queued {count} package(s) for rescan")
-        if batch_id:
-            print(f"  Batch ID: {batch_id}")
-    else:
-        _json(body)
-    sys.exit(0 if resp["code"] in (200, 202) else 2)
-
-
 def cmd_status(args):
     if args.batch:
         r = api_batch(args.batch)
@@ -403,12 +359,6 @@ def main():
     s.add_argument("-w", "--wait", type=int, default=120,
                    help="Seconds to wait for results (default: 120)")
 
-    # rescan [ecosystem] | --all
-    rs = sub.add_parser("rescan", help="Rescan trusted packages for new vulnerabilities")
-    rs.add_argument("ecosystem", nargs="?",
-                    help="Ecosystem to rescan: python, docker, npm, maven, nuget")
-    rs.add_argument("--all", "-a", action="store_true", help="Rescan all ecosystems")
-
     # status <job_id> | --batch <batch_id>
     st = sub.add_parser("status", help="Check scan status")
     st.add_argument("id", nargs="?", help="Job ID")
@@ -418,8 +368,6 @@ def main():
 
     if args.cmd == "scan":
         cmd_scan(args)
-    elif args.cmd == "rescan":
-        cmd_rescan(args)
     elif args.cmd == "status":
         cmd_status(args)
     else:

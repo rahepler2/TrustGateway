@@ -26,7 +26,7 @@
       "type": "row"
     },
     {
-      "datasource": { "type": "postgres", "uid": "${DS_GATEWAY_POSTGRESQL}" },
+      "datasource": { "type": "postgres", "uid": "gateway-pg" },
       "fieldConfig": {
         "defaults": {
           "mappings": [
@@ -38,49 +38,49 @@
       },
       "gridPos": { "h": 4, "w": 4, "x": 0, "y": 1 },
       "id": 1,
-      "options": { "colorMode": "value", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+      "options": { "colorMode": "value", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": true }, "textMode": "auto" },
       "title": "Verdict",
       "type": "stat",
       "targets": [{
-        "rawSql": "SELECT result->>'verdict' AS verdict FROM jobs WHERE id = '${job_id}';",
+        "rawSql": "SELECT COALESCE(result->>'verdict', status::text) AS verdict FROM jobs WHERE id = '$job_id' LIMIT 1;",
         "refId": "A",
         "format": "table"
       }]
     },
     {
-      "datasource": { "type": "postgres", "uid": "${DS_GATEWAY_POSTGRESQL}" },
+      "datasource": { "type": "postgres", "uid": "gateway-pg" },
       "fieldConfig": {
         "defaults": { "color": { "mode": "fixed", "fixedColor": "blue" } }
       },
       "gridPos": { "h": 4, "w": 5, "x": 4, "y": 1 },
       "id": 2,
-      "options": { "colorMode": "value", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+      "options": { "colorMode": "value", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": true }, "textMode": "auto" },
       "title": "Package",
       "type": "stat",
       "targets": [{
-        "rawSql": "SELECT package || CASE WHEN ecosystem = 'docker' THEN ':' ELSE '==' END || version AS name FROM jobs WHERE id = '${job_id}';",
+        "rawSql": "SELECT package || CASE WHEN ecosystem = 'docker' THEN ':' ELSE '==' END || version AS name FROM jobs WHERE id = '$job_id' LIMIT 1;",
         "refId": "A",
         "format": "table"
       }]
     },
     {
-      "datasource": { "type": "postgres", "uid": "${DS_GATEWAY_POSTGRESQL}" },
+      "datasource": { "type": "postgres", "uid": "gateway-pg" },
       "fieldConfig": {
         "defaults": { "color": { "mode": "fixed", "fixedColor": "purple" } }
       },
       "gridPos": { "h": 4, "w": 3, "x": 9, "y": 1 },
       "id": 3,
-      "options": { "colorMode": "value", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+      "options": { "colorMode": "value", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": true }, "textMode": "auto" },
       "title": "Ecosystem",
       "type": "stat",
       "targets": [{
-        "rawSql": "SELECT ecosystem FROM jobs WHERE id = '${job_id}';",
+        "rawSql": "SELECT ecosystem FROM jobs WHERE id = '$job_id' LIMIT 1;",
         "refId": "A",
         "format": "table"
       }]
     },
     {
-      "datasource": { "type": "postgres", "uid": "${DS_GATEWAY_POSTGRESQL}" },
+      "datasource": { "type": "postgres", "uid": "gateway-pg" },
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "thresholds" },
@@ -93,43 +93,43 @@
       },
       "gridPos": { "h": 4, "w": 3, "x": 12, "y": 1 },
       "id": 4,
-      "options": { "colorMode": "value", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+      "options": { "colorMode": "value", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": true }, "textMode": "auto" },
       "title": "Total CVEs",
       "type": "stat",
       "targets": [{
-        "rawSql": "SELECT COALESCE(jsonb_array_length(result->'cves'), 0) AS total_cves FROM jobs WHERE id = '${job_id}';",
+        "rawSql": "SELECT COALESCE(jsonb_array_length(result->'cves'), 0) AS total_cves FROM jobs WHERE id = '$job_id' LIMIT 1;",
         "refId": "A",
         "format": "table"
       }]
     },
     {
-      "datasource": { "type": "postgres", "uid": "${DS_GATEWAY_POSTGRESQL}" },
+      "datasource": { "type": "postgres", "uid": "gateway-pg" },
       "fieldConfig": {
         "defaults": { "color": { "mode": "fixed", "fixedColor": "semi-dark-blue" } }
       },
       "gridPos": { "h": 4, "w": 3, "x": 15, "y": 1 },
       "id": 5,
-      "options": { "colorMode": "value", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+      "options": { "colorMode": "value", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": true }, "textMode": "auto" },
       "title": "SBOM Components",
       "type": "stat",
       "targets": [{
-        "rawSql": "SELECT COALESCE((result->'sbom'->>'component_count')::int, 0) AS components FROM jobs WHERE id = '${job_id}';",
+        "rawSql": "SELECT COALESCE((result->'sbom'->>'component_count')::int, 0) AS components FROM jobs WHERE id = '$job_id' LIMIT 1;",
         "refId": "A",
         "format": "table"
       }]
     },
     {
-      "datasource": { "type": "postgres", "uid": "${DS_GATEWAY_POSTGRESQL}" },
+      "datasource": { "type": "postgres", "uid": "gateway-pg" },
       "fieldConfig": {
         "defaults": { "color": { "mode": "fixed", "fixedColor": "text" } }
       },
       "gridPos": { "h": 4, "w": 6, "x": 18, "y": 1 },
       "id": 6,
-      "options": { "colorMode": "none", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+      "options": { "colorMode": "none", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": true }, "textMode": "auto" },
       "title": "Scanned At",
       "type": "stat",
       "targets": [{
-        "rawSql": "SELECT to_char(created_at, 'YYYY-MM-DD HH24:MI:SS') AS scanned_at FROM jobs WHERE id = '${job_id}';",
+        "rawSql": "SELECT to_char(COALESCE(finished_at, started_at, created_at), 'YYYY-MM-DD HH24:MI:SS') AS scanned_at FROM jobs WHERE id = '$job_id' LIMIT 1;",
         "refId": "A",
         "format": "table"
       }]
@@ -142,7 +142,7 @@
       "type": "row"
     },
     {
-      "datasource": { "type": "postgres", "uid": "${DS_GATEWAY_POSTGRESQL}" },
+      "datasource": { "type": "postgres", "uid": "gateway-pg" },
       "fieldConfig": {
         "defaults": {
           "custom": { "align": "left", "displayMode": "auto", "filterable": false }
@@ -168,7 +168,7 @@
       "title": "Policy Reasons",
       "type": "table",
       "targets": [{
-        "rawSql": "SELECT ROW_NUMBER() OVER () AS idx, reason FROM (SELECT jsonb_array_elements_text(result->'reasons') AS reason FROM jobs WHERE id = '${job_id}' AND result->'reasons' IS NOT NULL) sub;",
+        "rawSql": "SELECT ROW_NUMBER() OVER () AS idx, reason FROM (SELECT jsonb_array_elements_text(result->'reasons') AS reason FROM jobs WHERE id = '$job_id' AND result ? 'reasons' AND jsonb_array_length(result->'reasons') > 0) sub;",
         "refId": "A",
         "format": "table"
       }]
@@ -181,7 +181,7 @@
       "type": "row"
     },
     {
-      "datasource": { "type": "postgres", "uid": "${DS_GATEWAY_POSTGRESQL}" },
+      "datasource": { "type": "postgres", "uid": "gateway-pg" },
       "fieldConfig": {
         "defaults": {
           "custom": { "align": "auto", "displayMode": "auto", "filterable": true }
@@ -231,7 +231,7 @@
       "title": "Vulnerabilities",
       "type": "table",
       "targets": [{
-        "rawSql": "SELECT cve->>'id' AS cve_id, cve->>'severity' AS severity, cve->>'pkg' AS package, cve->>'installed' AS installed, cve->>'fixed' AS fixed, cve->>'title' AS title, cve->>'target' AS target FROM (SELECT jsonb_array_elements(result->'cves') AS cve FROM jobs WHERE id = '${job_id}' AND result->'cves' IS NOT NULL) sub ORDER BY CASE cve->>'severity' WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 ELSE 4 END;",
+        "rawSql": "SELECT cve->>'id' AS cve_id, cve->>'severity' AS severity, cve->>'pkg' AS package, cve->>'installed' AS installed, cve->>'fixed' AS fixed, cve->>'title' AS title, cve->>'target' AS target FROM (SELECT jsonb_array_elements(result->'cves') AS cve FROM jobs WHERE id = '$job_id' AND result ? 'cves' AND jsonb_array_length(result->'cves') > 0) sub ORDER BY CASE cve->>'severity' WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 ELSE 4 END;",
         "refId": "A",
         "format": "table"
       }]
@@ -244,7 +244,7 @@
       "type": "row"
     },
     {
-      "datasource": { "type": "postgres", "uid": "${DS_GATEWAY_POSTGRESQL}" },
+      "datasource": { "type": "postgres", "uid": "gateway-pg" },
       "fieldConfig": {
         "defaults": { "color": { "mode": "palette-classic" }, "mappings": [] },
         "overrides": []
@@ -255,13 +255,13 @@
       "title": "License Breakdown",
       "type": "piechart",
       "targets": [{
-        "rawSql": "SELECT license, COUNT(*) AS count FROM (SELECT jsonb_array_elements_text(result->'sbom'->'licenses') AS license FROM jobs WHERE id = '${job_id}' AND result->'sbom'->'licenses' IS NOT NULL AND jsonb_array_length(result->'sbom'->'licenses') > 0) sub GROUP BY license ORDER BY count DESC;",
+        "rawSql": "SELECT license, COUNT(*) AS count FROM (SELECT COALESCE(comp->>'license', 'Unknown') AS license FROM (SELECT jsonb_array_elements(result->'sbom'->'components') AS comp FROM jobs WHERE id = '$job_id' AND result->'sbom'->'components' IS NOT NULL) sub WHERE COALESCE(comp->>'license', '') != '') sub2 GROUP BY license ORDER BY count DESC;",
         "refId": "A",
         "format": "table"
       }]
     },
     {
-      "datasource": { "type": "postgres", "uid": "${DS_GATEWAY_POSTGRESQL}" },
+      "datasource": { "type": "postgres", "uid": "gateway-pg" },
       "fieldConfig": {
         "defaults": {
           "custom": { "align": "auto", "displayMode": "auto", "filterable": true }
@@ -287,7 +287,7 @@
       "title": "SBOM Components",
       "type": "table",
       "targets": [{
-        "rawSql": "SELECT comp->>'name' AS name, comp->>'version' AS version, comp->>'type' AS type, comp->>'license' AS license FROM (SELECT jsonb_array_elements(result->'sbom'->'components') AS comp FROM jobs WHERE id = '${job_id}' AND result->'sbom'->'components' IS NOT NULL) sub ORDER BY comp->>'name';",
+        "rawSql": "SELECT comp->>'name' AS name, comp->>'version' AS version, comp->>'type' AS type, comp->>'license' AS license FROM (SELECT jsonb_array_elements(result->'sbom'->'components') AS comp FROM jobs WHERE id = '$job_id' AND result->'sbom'->'components' IS NOT NULL) sub ORDER BY comp->>'name';",
         "refId": "A",
         "format": "table"
       }]
@@ -300,7 +300,7 @@
       "type": "row"
     },
     {
-      "datasource": { "type": "postgres", "uid": "${DS_GATEWAY_POSTGRESQL}" },
+      "datasource": { "type": "postgres", "uid": "gateway-pg" },
       "fieldConfig": {
         "defaults": {
           "custom": { "align": "auto", "displayMode": "auto", "filterable": false }
@@ -332,7 +332,7 @@
       "title": "All Scans of This Package",
       "type": "table",
       "targets": [{
-        "rawSql": "SELECT j2.id, j2.version, j2.result->>'verdict' AS verdict, COALESCE((j2.result->'trivy'->>'critical')::int, 0) AS critical, COALESCE((j2.result->'trivy'->>'high')::int, 0) AS high, COALESCE((j2.result->'trivy'->>'medium')::int, 0) AS medium, COALESCE((j2.result->'sbom'->>'component_count')::int, 0) AS components, j2.created_at AS scanned FROM jobs j2 WHERE j2.package = (SELECT package FROM jobs WHERE id = '${job_id}') ORDER BY j2.created_at DESC LIMIT 20;",
+        "rawSql": "SELECT j2.id, j2.version, j2.result->>'verdict' AS verdict, CASE WHEN j2.result ? 'trivy' THEN (j2.result->'trivy'->>'critical')::int END AS critical, CASE WHEN j2.result ? 'trivy' THEN (j2.result->'trivy'->>'high')::int END AS high, CASE WHEN j2.result ? 'trivy' THEN (j2.result->'trivy'->>'medium')::int END AS medium, COALESCE((j2.result->'sbom'->>'component_count')::int, 0) AS components, COALESCE(j2.finished_at, j2.created_at) AS scanned FROM jobs j2 WHERE j2.package = (SELECT package FROM jobs WHERE id = '$job_id') ORDER BY j2.created_at DESC LIMIT 20;",
         "refId": "A",
         "format": "table"
       }]
@@ -342,28 +342,6 @@
   "tags": ["security", "trust-gateway"],
   "templating": {
     "list": [
-      {
-        "current": { "selected": false, "text": "Gateway PostgreSQL", "value": "Gateway PostgreSQL" },
-        "hide": 2,
-        "includeAll": false,
-        "name": "DS_GATEWAY_POSTGRESQL",
-        "options": [],
-        "query": "postgres",
-        "type": "datasource"
-      },
-      {
-        "current": {},
-        "datasource": { "type": "postgres", "uid": "${DS_GATEWAY_POSTGRESQL}" },
-        "definition": "SELECT id AS __value, package || '==' || version || ' (' || ecosystem || ', ' || COALESCE(result->>'verdict','…') || ')' AS __text FROM jobs WHERE ($ecosystem = 'All' OR ecosystem = '$ecosystem') ORDER BY created_at DESC LIMIT 100;",
-        "hide": 0,
-        "includeAll": false,
-        "label": "Scan Job",
-        "name": "job_id",
-        "query": "SELECT id AS __value, package || '==' || version || ' (' || ecosystem || ', ' || COALESCE(result->>'verdict','…') || ')' AS __text FROM jobs WHERE ('$ecosystem' = 'All' OR ecosystem = '$ecosystem') ORDER BY created_at DESC LIMIT 100;",
-        "refresh": 2,
-        "type": "query",
-        "sort": 0
-      },
       {
         "current": { "selected": false, "text": "All", "value": "All" },
         "hide": 0,
@@ -380,6 +358,19 @@
         ],
         "query": "All,pypi,docker,npm,maven,nuget",
         "type": "custom",
+        "sort": 0
+      },
+      {
+        "current": {},
+        "datasource": { "type": "postgres", "uid": "gateway-pg" },
+        "definition": "SELECT id AS __value, package || '==' || version || ' (' || ecosystem || ', ' || COALESCE(result->>'verdict','running') || ')' AS __text FROM jobs ORDER BY created_at DESC LIMIT 100;",
+        "hide": 0,
+        "includeAll": false,
+        "label": "Scan Job",
+        "name": "job_id",
+        "query": "SELECT id AS __value, package || '==' || version || ' (' || ecosystem || ', ' || COALESCE(result->>'verdict','running') || ')' AS __text FROM jobs WHERE ('$ecosystem' = 'All' OR ecosystem = '$ecosystem') ORDER BY created_at DESC LIMIT 100;",
+        "refresh": 2,
+        "type": "query",
         "sort": 0
       }
     ]

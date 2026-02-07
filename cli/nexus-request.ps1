@@ -14,8 +14,6 @@
     nexus-request scan docker nginx 1.25
     nexus-request scan npm express@4.18.2
     nexus-request scan python -f requirements.txt
-    nexus-request rescan python
-    nexus-request rescan -All
     nexus-request status <job_id>
     nexus-request status -Batch <batch_id>
 
@@ -27,7 +25,7 @@
 
 param(
     [Parameter(Position=0, Mandatory=$true)]
-    [ValidateSet("scan", "status", "rescan")]
+    [ValidateSet("scan", "status")]
     [string]$Command,
 
     [Parameter(Position=1, ValueFromRemainingArguments=$true)]
@@ -40,10 +38,7 @@ param(
     [int]$Wait = 120,
 
     [Alias("b")]
-    [string]$Batch,
-
-    [Alias("a")]
-    [switch]$All
+    [string]$Batch
 )
 
 $ErrorActionPreference = "Stop"
@@ -250,41 +245,6 @@ switch ($Command) {
             }
         } catch {
             Write-Error "Request failed: $_"
-            exit 2
-        }
-    }
-
-    "rescan" {
-        if ($All) {
-            $eco = $null
-            Write-Host "Requesting rescan of ALL trusted packages..."
-        } else {
-            if (-not $Args_ -or $Args_.Count -eq 0) {
-                Write-Error "Usage: nexus-request rescan <ecosystem> or nexus-request rescan -All"
-                exit 2
-            }
-            $eco = Resolve-Ecosystem $Args_[0]
-            if (-not $eco) {
-                Write-Error "Unknown ecosystem '$($Args_[0])'. Valid: python, docker, npm, maven, nuget"
-                exit 2
-            }
-            Write-Host "Requesting rescan of all trusted $eco packages..."
-        }
-
-        $bodyHash = @{}
-        if ($eco) { $bodyHash["ecosystem"] = $eco }
-        $body = $bodyHash | ConvertTo-Json
-
-        try {
-            $resp = Invoke-RestMethod -Uri "$GatewayUrl/rescan" -Method Post `
-                -Headers $Headers -Body $body -TimeoutSec 30
-            $count = if ($resp.packages_queued) { $resp.packages_queued } else { 0 }
-            Write-Host "  Queued $count package(s) for rescan"
-            if ($resp.batch_id) {
-                Write-Host "  Batch ID: $($resp.batch_id)"
-            }
-        } catch {
-            Write-Error "Rescan request failed: $_"
             exit 2
         }
     }

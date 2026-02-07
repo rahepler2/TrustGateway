@@ -156,6 +156,8 @@ services:
       - SCAN_WORKERS=${SCAN_WORKERS:-3}
       # API authentication (optional — set in .env to enable)
       - TRUST_GATEWAY_API_KEY=${TRUST_GATEWAY_API_KEY:-}
+      # Scheduled rescan interval in seconds (default 6h; 0 = disabled)
+      - RESCAN_INTERVAL=${RESCAN_INTERVAL:-21600}
     ports:
       - "5002:5000"
     depends_on:
@@ -168,6 +170,33 @@ services:
     volumes:
       - ./gateway/scan-reports:/app/scan-reports
       - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - security-net
+
+  # ---------------------------------------------------------------------------
+  # Trivy DB Updater — refreshes vulnerability database every 4 hours
+  # ---------------------------------------------------------------------------
+  trivy-db-updater:
+    image: aquasec/trivy:latest
+    container_name: trivy-db-updater
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        echo "[trivy-db-updater] Starting Trivy DB update loop (every 4h)..."
+        while true; do
+          echo "[trivy-db-updater] Downloading latest vulnerability DB..."
+          trivy image --download-db-only --cache-dir /var/trivy/cache 2>&1 && \
+            echo "[trivy-db-updater] DB update complete." || \
+            echo "[trivy-db-updater] DB update failed (will retry next cycle)."
+          echo "[trivy-db-updater] Next update in 4 hours."
+          sleep 14400
+        done
+    volumes:
+      - trivy-cache:/var/trivy/cache
+    depends_on:
+      trivy-server:
+        condition: service_healthy
     networks:
       - security-net
 
