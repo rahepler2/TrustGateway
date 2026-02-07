@@ -210,14 +210,15 @@ def create_app():
         return jsonify({
             "description": "Nexus Trust Gateway API",
             "endpoints": {
-                "POST /request": "Scan one or more pinned package==version specs",
+                "POST /request": "Scan a package (version optional — resolves latest)",
                 "POST /request/batch": "Upload requirements file to vet a batch",
+                "POST /rescan": "Rescan all trusted packages for new vulnerabilities",
                 "POST /webhook/nexus": "Webhook for Nexus component-created events",
                 "GET  /job/<job_id>": "Query single job status",
                 "GET  /batch/<batch_id>/status": "Query batch status",
             },
             "ecosystems": ["pypi", "npm", "docker", "maven", "nuget"],
-            "notes": "All package specs must be pinned (pkg==version).",
+            "notes": "Version is optional — the gateway will resolve the latest version automatically.",
         }), 200
 
     @app.route("/webhook/nexus", methods=["POST"])
@@ -265,9 +266,22 @@ def create_app():
         else:
             return jsonify({"error": "provide 'package' & 'version' or 'packages' list"}), 400
 
-        unpinned = [p for (p, v) in pkg_list if v is None]
-        if unpinned:
-            return jsonify({"error": "unpinned package(s)", "unpinned": unpinned}), 400
+        # Resolve latest version for packages submitted without one
+        resolved = []
+        unresolvable = []
+        for p, v in pkg_list:
+            if v is None:
+                latest = GATEWAY.nexus.resolve_latest_version(p, ecosystem)
+                if latest:
+                    log.info(f"Resolved {p} -> {latest} ({ecosystem})")
+                    resolved.append((p, latest))
+                else:
+                    unresolvable.append(p)
+            else:
+                resolved.append((p, v))
+        pkg_list = resolved
+        if unresolvable:
+            return jsonify({"error": "could not resolve version", "packages": unresolvable}), 400
 
         job_ids = [submit_scan_job(p, v, ecosystem) for p, v in pkg_list]
 
@@ -372,6 +386,57 @@ def create_app():
             "overall": overall,
             "jobs": jobs_summary,
         }), 200
+
+    @app.route("/rescan", methods=["POST"])
+    def rescan_trusted():
+        """Rescan all packages in trusted repos against updated vulnerability databases."""
+        data = flask_request.get_json(force=True) if flask_request.is_json else {}
+        ecosystem_filter = data.get("ecosystem")
+
+        ecosystems = [ecosystem_filter] if ecosystem_filter else ["pypi", "npm", "docker", "maven", "nuget"]
+
+        all_packages = []
+        for eco in ecosystems:
+            try:
+                pkgs = GATEWAY.nexus.list_trusted_packages(eco)
+                for pkg in pkgs:
+                    pkg["ecosystem"] = eco
+                all_packages.extend(pkgs)
+            except Exception as e:
+                log.warning(f"Failed to list trusted {eco} packages: {e}")
+
+        if not all_packages:
+            return jsonify({
+                "status": "no_packages",
+                "packages_queued": 0,
+                "message": "No packages found in trusted repos",
+            }), 200
+
+        batch_id = str(uuid.uuid4())
+        job_entries = []
+        for pkg in all_packages:
+            jid = submit_scan_job(pkg["package"], pkg["version"], pkg["ecosystem"])
+            job_entries.append({
+                "package": pkg["package"],
+                "version": pkg["version"],
+                "ecosystem": pkg["ecosystem"],
+                "job_id": jid,
+            })
+
+        with _lock:
+            BATCHES[batch_id] = {
+                "job_ids": [je["job_id"] for je in job_entries],
+                "submitted_at": time.time(),
+                "items": job_entries,
+            }
+
+        log.info(f"Rescan started: {len(job_entries)} packages, batch {batch_id}")
+        return jsonify({
+            "status": "rescan_started",
+            "batch_id": batch_id,
+            "packages_queued": len(job_entries),
+            "ecosystems": ecosystems,
+        }), 202
 
     return app
 

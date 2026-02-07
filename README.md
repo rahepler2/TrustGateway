@@ -36,7 +36,7 @@ Developers just `pip install` / `npm install` / `docker pull` as normal. They ne
 - Docker & Docker Compose
 - 8GB RAM minimum (Nexus needs ~1.2GB alone)
 
-### 1. Start Everything
+### 1. Start the Gateway
 
 ```bash
 git clone https://github.com/yourorg/Security-Manger.git
@@ -44,30 +44,36 @@ cd Security-Manger
 
 # Create your environment file
 cp example.env .env
+# Edit .env — change all passwords and set TRUST_GATEWAY_API_KEY
 
 # Start all services
-docker compose up -d
+docker compose up -d --build
 ```
 
-This launches 7 services:
+This launches 6 services:
 
 | Service | Port | Purpose |
 |---------|------|---------|
 | **Nexus** | 8081 | Package/container registry (UI + API) |
 | **Trivy Server** | 8080 | Vulnerability + secret scanning |
 | **OSSF Worker** | 8090 | Behavioral package analysis |
-| **Gateway** | 5000 | Scanning pipeline API |
-| **PostgreSQL** | 5432 | Job/batch metadata |
-| **MinIO** | 9000, 9001 | S3-compatible report/SBOM storage |
+| **Gateway** | 5002 | Scanning pipeline API |
+| **PostgreSQL** | 5432 | Job/batch metadata + Grafana datasource |
 | **Grafana** | 3000 | Security dashboards + auditing |
 
 Nexus also exposes Docker registry ports: `9443` (group), `9444` (trusted), `9445` (proxy).
 
-The gateway will wait for Nexus and Trivy to be healthy before starting.
+The gateway waits for Nexus, Trivy, and PostgreSQL to be healthy before starting.
 
 ### 2. Configure Nexus Repositories
 
-Once Nexus is up (http://localhost:8081), create the repository structure. Each ecosystem follows the same naming convention:
+Once Nexus is up (http://localhost:8081), create the repository structure. You can run the automated setup:
+
+```bash
+docker compose run --rm nexus-setup
+```
+
+Or create manually. Each ecosystem follows the same naming convention:
 
 | Repository | Type | Purpose |
 |------------|------|---------|
@@ -78,32 +84,181 @@ Once Nexus is up (http://localhost:8081), create the repository structure. Each 
 
 Create these for each ecosystem you use (pypi, npm, docker, maven, nuget).
 
-Then configure a **Nexus webhook** on the `{format}-upstream` proxy repos to POST to `http://gateway:5000/webhook/nexus` on component creation. This triggers automatic scanning when packages are proxied.
+### 3. Set Up Developer Machines
 
-### 3. Configure Developer Machines
+Each developer needs two things:
+1. The `nexus-request` CLI tool
+2. Their package manager pointed at Nexus
 
-Reference configs for each ecosystem are in the `config/` directory:
+#### Install the CLI
 
-```bash
-config/
-├── pip.conf            # Python — point at pypi-group
-├── npmrc               # Node.js — point at npm-group
-├── settings.xml        # Maven — point at maven-group
-├── nuget.config        # .NET — point at nuget-group
-└── docker-daemon.json  # Docker — point at docker-group (port 9443)
+Copy the `cli/` folder to each developer machine and add it to their PATH.
+
+**Windows:**
+```powershell
+# Copy cli/ folder to C:\Tools\nexus-request\
+# Add C:\Tools\nexus-request to your PATH
+
+# Set environment variables (run once, persists across sessions)
+[System.Environment]::SetEnvironmentVariable("TRUST_GATEWAY_URL", "http://your-gateway-server:5002", "User")
+[System.Environment]::SetEnvironmentVariable("TRUST_GATEWAY_KEY", "your-api-key", "User")
 ```
 
-Copy and edit these for your environment (replace `<nexus-host>` with your server).
+The `nexus-request.cmd` wrapper lets you type `nexus-request` from any shell (cmd, PowerShell, Windows Terminal).
 
-**Example — Python developer setup:**
+**Linux/macOS:**
+```bash
+# Copy cli/ folder or symlink nexus-request.sh
+sudo ln -s /path/to/cli/nexus-request.sh /usr/local/bin/nexus-request
+
+# Add to ~/.bashrc or ~/.zshrc
+export TRUST_GATEWAY_URL=http://your-gateway-server:5002
+export TRUST_GATEWAY_KEY=your-api-key
+```
+
+Requires Python 3 and `pip install requests`.
+
+#### Configure Package Managers
+
+Point each package manager at the Nexus group repo so installs only serve scanned, trusted packages.
+
+**pip (Python):**
 ```ini
-# ~/.config/pip/pip.conf
+# Linux/Mac: ~/.config/pip/pip.conf
+# Windows:   %APPDATA%\pip\pip.ini
 [global]
 index-url = http://nexus.internal:8081/repository/pypi-group/simple/
 trusted-host = nexus.internal
 ```
 
-Once configured, `pip install flask` will only serve packages from the trusted repo.
+**uv (Python):**
+```bash
+# Set in your shell profile (~/.bashrc, ~/.zshrc, etc.)
+export UV_INDEX_URL=http://nexus.internal:8081/repository/pypi-group/simple/
+
+# Or per-project in pyproject.toml
+# [tool.uv]
+# index-url = "http://nexus.internal:8081/repository/pypi-group/simple/"
+```
+
+**npm (Node.js):**
+```bash
+# ~/.npmrc or project .npmrc
+registry=http://nexus.internal:8081/repository/npm-group/
+always-auth=true
+```
+
+**Docker:**
+```json
+// /etc/docker/daemon.json (Linux) or Docker Desktop settings
+{
+  "registry-mirrors": ["http://nexus.internal:9443"],
+  "insecure-registries": ["nexus.internal:9443"]
+}
+```
+
+**Maven (Java):**
+
+See `config/settings.xml` — add the Nexus group URL as a mirror.
+
+**NuGet (.NET):**
+
+See `config/nuget.config` — add the Nexus group URL as a package source.
+
+Reference configs for all ecosystems are in the `config/` directory.
+
+## Usage
+
+### Scanning Packages
+
+The CLI uses the pattern: `nexus-request scan <ecosystem> <package> [version]`
+
+Version is optional — the gateway resolves the latest version automatically.
+
+```bash
+# Python packages
+nexus-request scan python requests              # latest version
+nexus-request scan python requests==2.32.3      # specific version
+nexus-request scan python requests 2.32.3       # same thing
+
+# Docker images
+nexus-request scan docker nginx                 # defaults to :latest
+nexus-request scan docker nginx:1.25            # specific tag
+nexus-request scan docker nginx 1.25            # same thing
+
+# npm packages
+nexus-request scan npm express                  # latest
+nexus-request scan npm express@4.18.2           # specific version
+
+# Maven
+nexus-request scan maven org.apache.commons:commons-lang3:3.14.0
+
+# NuGet
+nexus-request scan nuget Newtonsoft.Json 13.0.3
+
+# Batch scan from a file
+nexus-request scan python -f requirements.txt
+nexus-request scan npm -f package-lock.json
+```
+
+Output:
+```
+Scanning requests (pypi)...
+  Job ID: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+  Scanning a1b2c3d4... 45s
+  PASS  requests==2.32.3 (pypi)
+```
+
+Exit code `0` = all passed, `1` = something failed/quarantined.
+
+### Checking Status
+
+```bash
+nexus-request status <job-id>
+nexus-request status --batch <batch-id>
+```
+
+### Rescanning for New Vulnerabilities
+
+As new CVEs are published, packages that were previously clean may become vulnerable. The `rescan` command re-scans everything in your trusted repos:
+
+```bash
+# Rescan all trusted Python packages
+nexus-request rescan python
+
+# Rescan all trusted packages across all ecosystems
+nexus-request rescan --all
+```
+
+Packages that now fail policy are moved to quarantine. You can schedule this as a cron job:
+
+```bash
+# Daily rescan at 2am
+0 2 * * * /usr/local/bin/nexus-request rescan --all
+```
+
+### API Endpoints
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| `GET` | `/health` | Health check |
+| `GET` | `/help` | Endpoint documentation |
+| `POST` | `/request` | Scan a package (version optional) |
+| `POST` | `/request/batch` | Scan from requirements file |
+| `POST` | `/rescan` | Rescan trusted packages for new vulnerabilities |
+| `POST` | `/webhook/nexus` | Webhook for Nexus component-created events |
+| `GET` | `/job/<job_id>` | Query scan job status |
+| `GET` | `/batch/<batch_id>/status` | Query batch status |
+
+All endpoints (except `/health` and `/help`) require an `X-API-Key` header when `TRUST_GATEWAY_API_KEY` is set.
+
+**Example — API request:**
+```bash
+curl -X POST http://localhost:5002/request \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: your-api-key" \
+  -d '{"package": "flask", "ecosystem": "pypi", "wait": 120}'
+```
 
 ## How Scanning Works
 
@@ -130,116 +285,24 @@ For **container images**, step 2 is skipped (Trivy scans images directly) and Sy
 | **FAIL** | Quarantined only | Policy violation — blocked from developers |
 | **ERROR** | Not uploaded anywhere | Scan infrastructure failure, investigate |
 
-### Scan Reports
+### Why Multiple Scanners?
 
-Every scan produces a JSON report stored in `scan-reports/` and uploaded to MinIO:
+Defense in depth. Each scanner has different strengths:
 
-```json
-{
-  "package": "urllib3",
-  "version": "1.26.5",
-  "ecosystem": "PyPI",
-  "verdict": "warn",
-  "reasons": [
-    "Known vulnerability (OSV): PYSEC-2023-192",
-    "Known vulnerability (OSV): GHSA-v845-jxx5-vc9f"
-  ],
-  "scanned_at": "2026-02-05T18:04:39.123456+00:00",
-  "policy_version": "1.0",
-  "scan_details": {
-    "trivy": { "vulnerabilities_found": 2, "secrets_found": 0 },
-    "ossf": { "skipped": false },
-    "osv": { "vulnerabilities_found": 2 },
-    "sbom": { "skipped": false, "component_count": 12, "format": "CycloneDX" }
-  }
-}
-```
+| Scanner | Best At |
+|---------|---------|
+| **Trivy** | CVE detection, broad vulnerability coverage, secrets |
+| **OSV** | Known malware (MAL- entries), GitHub advisories |
+| **OSSF** | Zero-day behavioral detection, install-time attacks |
+| **Syft** | Dependency inventory, license compliance |
 
-## Usage
-
-### Developer CLI
-
-The `cli/` directory contains cross-platform tools for requesting scans:
-
-```bash
-# Python (any OS)
-python cli/nexus-request.py submit -p "flask==3.0.0" --wait 300
-
-# Multiple packages
-python cli/nexus-request.py submit -p "flask==3.0.0,requests==2.32.3"
-
-# Docker image
-python cli/nexus-request.py submit -p "nginx==1.25" -e docker --wait 600
-
-# npm package
-python cli/nexus-request.py submit -p "express==4.18.2" -e npm
-
-# Batch from requirements.txt
-python cli/nexus-request.py submit-batch -r requirements.txt
-
-# Check status
-python cli/nexus-request.py status --job <job-id>
-python cli/nexus-request.py status --batch <batch-id>
-```
-
-**PowerShell (Windows):**
-```powershell
-.\cli\nexus-request.ps1 submit -Package "flask==3.0.0"
-.\cli\nexus-request.ps1 submit -Package "nginx==1.25" -Ecosystem docker
-```
-
-**Bash (Linux/Mac):**
-```bash
-./cli/nexus-request.sh submit -p "flask==3.0.0"
-```
-
-The CLI shows progress while scanning:
-```
-[INFO] Submitting flask==3.0.0 (pypi) to Trust Gateway...
-[INFO] Scanning... (45s elapsed)
-```
-
-### Gateway CLI (server-side)
-
-The gateway container also has a direct CLI for server-side operations:
-
-```bash
-# Scan from inside the gateway container
-docker exec gateway python -m gateway.app scan flask==3.0.0,requests==2.32.3
-
-# Scan Docker image
-docker exec gateway python -m gateway.app scan nginx==1.25 -e docker
-
-# Bulk scan from file
-docker exec gateway python -m gateway.app bulk requirements.txt
-```
-
-### API Endpoints
-
-| Method | Endpoint | Purpose |
-|--------|----------|---------|
-| `GET` | `/health` | Health check |
-| `GET` | `/help` | Endpoint documentation |
-| `POST` | `/request` | Scan package(s) — JSON body |
-| `POST` | `/request/batch` | Scan from requirements file — multipart upload |
-| `POST` | `/webhook/nexus` | Webhook for Nexus component-created events |
-| `GET` | `/job/<job_id>` | Query scan job status |
-| `GET` | `/batch/<batch_id>/status` | Query batch status |
-
-**Example — API request:**
-```bash
-curl -X POST http://localhost:5000/request \
-  -H "Content-Type: application/json" \
-  -d '{"package": "flask==3.0.0", "ecosystem": "pypi", "wait": 120}'
-```
+A package must pass **all** scanners to be promoted to trusted.
 
 ## Configuration
 
 All configuration is environment-driven via `.env` (see `example.env` for all variables).
 
 ### Scan Policy
-
-Policy is configured via environment variables:
 
 | Variable | Default | Effect |
 |----------|---------|--------|
@@ -249,6 +312,10 @@ Policy is configured via environment variables:
 | `POLICY_BLOCK_NET` | `true` | Block packages with suspicious network activity during install |
 | `POLICY_BLOCK_FS` | `false` | Block packages with suspicious filesystem access |
 | `POLICY_BLOCK_MALWARE` | `true` | Block known malware (OSV MAL- entries) |
+
+### Authentication
+
+Set `TRUST_GATEWAY_API_KEY` in your `.env` to require API key authentication on all gateway endpoints. Developers set `TRUST_GATEWAY_KEY` as an environment variable on their machines.
 
 ### Multi-Ecosystem Repository Naming
 
@@ -262,6 +329,15 @@ Every ecosystem uses the same four-tier pattern:
 | Maven | `maven-upstream` | `maven-trusted` | `maven-quarantine` | `maven-group` |
 | NuGet | `nuget-upstream` | `nuget-trusted` | `nuget-quarantine` | `nuget-group` |
 
+## Grafana Dashboards
+
+Grafana (http://localhost:3000) is auto-provisioned with two dashboards:
+
+- **Security Overview** — total scans, pass/fail rates, CVE severity breakdown, recent jobs, top vulnerable packages
+- **Package Security Detail** — drill-down view with CVE details, SBOM components, license breakdown, policy failure reasons (click into it from the overview)
+
+Login with `admin` / password from `GRAFANA_ADMIN_PASSWORD` in `.env`.
+
 ## Vulnerability Database
 
 Trivy uses a **local vulnerability database**, not live API queries per scan.
@@ -269,11 +345,9 @@ Trivy uses a **local vulnerability database**, not live API queries per scan.
 | Scanner | DB Update | How It Works |
 |---------|-----------|--------------|
 | **Trivy** | Every 6h (auto) | DB published as OCI artifact, trivy-server pulls and caches it |
-| **OSV** | Real-time API | Queries `api.osv.dev` per scan (fallback) or local `osv-scanner` binary |
+| **OSV** | Real-time API | Queries `api.osv.dev` per scan |
 | **OSSF** | N/A | Behavioral analysis — no database, runs the package install in a sandbox |
 | **Syft** | N/A | Generates SBOMs from installed files, no vuln DB needed |
-
-The gateway uses **Trivy client-server mode**: the gateway's trivy binary is a thin client that sends scan targets to the `trivy-server`, which maintains the DB centrally. One DB, one update schedule, no duplication.
 
 ### Forcing a DB Update
 
@@ -288,16 +362,7 @@ docker exec trivy-server trivy image --download-db-only
 | CVE published on NVD | T+0 |
 | Trivy DB includes it | T+6h |
 | Your trivy-server picks it up | T+6-18h |
-| Your next scan detects it | Immediately after DB update |
-
-## Grafana Dashboards
-
-Grafana (http://localhost:3000) is auto-provisioned with:
-
-- **PostgreSQL datasource** — connected to the gateway database
-- **Security Overview dashboard** — total scans, pass/fail rates, recent jobs, scan trends
-
-Login with `admin` / password from `GRAFANA_ADMIN_PASSWORD` in `.env`.
+| `nexus-request rescan` detects it | Immediately after DB update |
 
 ## Project Structure
 
@@ -317,61 +382,30 @@ Security-Manger/
 │   │   └── nexus.py            # Nexus download/upload/search client
 │   ├── models.py               # Job/Batch ORM models
 │   ├── db.py                   # PostgreSQL session management
-│   ├── storage.py              # MinIO/S3 report storage
 │   ├── Dockerfile
-│   ├── entrypoint.sh           # Waits for deps, then starts server
+│   ├── entrypoint.sh           # Waits for deps, starts Gunicorn
 │   └── requirements.txt
 ├── ossf-worker/                # OSSF behavioral analysis microservice
 │   ├── app.py                  # Flask API wrapping OSSF analyze binary
 │   ├── Dockerfile              # Builds OSSF from source (Go)
 │   └── requirements.txt
 ├── cli/                        # Developer-facing CLI tools
-│   ├── nexus-request.py        # Python CLI
-│   ├── nexus-request.ps1       # PowerShell wrapper
-│   ├── nexus-request.sh        # Bash wrapper
+│   ├── nexus-request.py        # Python CLI (cross-platform)
+│   ├── nexus-request.ps1       # PowerShell CLI
+│   ├── nexus-request.cmd       # Windows wrapper (invoke from any shell)
+│   ├── nexus-request.sh        # Bash wrapper (delegates to Python)
 │   └── README.md
 ├── config/                     # Reference client configurations
-│   ├── pip.conf                # Python developer setup
-│   ├── npmrc                   # Node.js developer setup
-│   ├── settings.xml            # Maven developer setup
-│   ├── nuget.config            # .NET developer setup
-│   ├── docker-daemon.json      # Docker developer setup
+│   ├── pip.conf                # Python pip setup
+│   ├── npmrc                   # Node.js npm setup
+│   ├── settings.xml            # Maven setup
+│   ├── nuget.config            # .NET NuGet setup
+│   ├── docker-daemon.json      # Docker daemon setup
 │   └── grafana/                # Auto-provisioned dashboards + datasources
 ├── docker-compose.yml          # Full stack — one command to run
 ├── example.env                 # Environment variable template
 └── README.md
 ```
-
-## Architecture Decisions
-
-### Why Nexus OSS?
-
-Battle-tested repository manager that supports every package format (PyPI, npm, Maven, Docker, NuGet, raw). Free, open source, rich API for automation.
-
-### Why Trivy?
-
-Fast, comprehensive vulnerability scanner maintained by Aqua Security. DB updated every 6 hours. Supports filesystem scans, container images, and secrets detection. Client-server mode means one DB for the whole deployment.
-
-### Why a Separate OSSF Worker?
-
-The OSSF package-analysis tool needs to install packages in a sandbox to observe their behavior. Running it as a separate container avoids Docker-in-Docker complexity — the gateway calls the worker's HTTP API, and the worker runs the analysis natively.
-
-### Why Syft?
-
-Generates SBOMs (Software Bill of Materials) in CycloneDX format. Required for regulatory compliance (EO 14028), useful for license auditing and dependency inventory in Grafana.
-
-### Why Multiple Scanners?
-
-Defense in depth. Each scanner has different strengths:
-
-| Scanner | Best At |
-|---------|---------|
-| **Trivy** | CVE detection, broad vulnerability coverage, secrets |
-| **OSV** | Known malware (MAL- entries), GitHub advisories |
-| **OSSF** | Zero-day behavioral detection, install-time attacks |
-| **Syft** | Dependency inventory, license compliance |
-
-A package must pass **all** scanners to be promoted to trusted.
 
 ## Troubleshooting
 
@@ -386,10 +420,8 @@ docker compose ps    # Check healthcheck status
 ### Nexus authentication errors
 
 ```bash
-# Verify credentials work (use credentials from your .env file)
+# Verify credentials work
 curl -u $NEXUS_USER:$NEXUS_PASS http://localhost:8081/service/rest/v1/status
-
-# Check NEXUS_USER / NEXUS_PASS in .env match your Nexus admin credentials
 ```
 
 ### Trivy scan failures
@@ -404,15 +436,14 @@ docker exec gateway curl http://trivy-server:8080/healthz
 
 ### Large packages timing out
 
-For large packages like PyTorch, increase timeouts:
 ```bash
-# In .env or docker-compose environment
-OSSF_TIMEOUT=600    # 10 minutes for behavioral analysis
+# In .env — increase the OSSF behavioral analysis timeout
+OSSF_TIMEOUT=600
 ```
 
 The CLI shows progress while waiting:
 ```
-[INFO] Scanning... (120s elapsed)
+  Scanning a1b2c3d4... 120s
 ```
 
 ## License

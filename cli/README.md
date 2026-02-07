@@ -11,58 +11,87 @@ Command-line tool for requesting package and container scans from the Trust Gate
 
 2. Set environment variables:
    ```bash
-   export TRUST_GATEWAY_URL=http://your-gateway-server:5000
-   # Optional: export TRUST_GATEWAY_KEY=your-api-key
+   export TRUST_GATEWAY_URL=http://your-gateway-server:5002
+   export TRUST_GATEWAY_KEY=your-api-key
    ```
 
-   Or on Windows (PowerShell):
+   Or on Windows (PowerShell — persists across sessions):
    ```powershell
-   $env:TRUST_GATEWAY_URL = "http://your-gateway-server:5000"
+   [System.Environment]::SetEnvironmentVariable("TRUST_GATEWAY_URL", "http://your-gateway-server:5002", "User")
+   [System.Environment]::SetEnvironmentVariable("TRUST_GATEWAY_KEY", "your-api-key", "User")
+   ```
+
+3. Add the `cli/` directory to your PATH, or symlink the script:
+   ```bash
+   # Linux/macOS
+   sudo ln -s /path/to/cli/nexus-request.sh /usr/local/bin/nexus-request
+
+   # Windows — the .cmd wrapper lets you run "nexus-request" from any shell
+   # Just add the cli/ folder to your PATH
    ```
 
 ## Usage
 
-### Python (cross-platform)
+The CLI uses the pattern: `nexus-request scan <ecosystem> <package> [version]`
+
+Version is optional — the gateway resolves the latest automatically.
+
+### Scanning Packages
 
 ```bash
-# Submit a PyPI package
-python nexus-request.py submit -p "flask==3.0.0" --wait 300
+# Python
+nexus-request scan python requests              # latest version
+nexus-request scan python requests==2.32.3      # specific version
+nexus-request scan python requests 2.32.3       # same thing
+nexus-request scan python -f requirements.txt   # batch from file
 
-# Submit an npm package
-python nexus-request.py submit -p "express==4.18.2" -e npm
+# Docker
+nexus-request scan docker nginx                 # defaults to :latest
+nexus-request scan docker nginx:1.25
+nexus-request scan docker nginx 1.25
 
-# Submit a Docker image
-python nexus-request.py submit -p "nginx==1.25" -e docker --wait 600
+# npm
+nexus-request scan npm express
+nexus-request scan npm express@4.18.2
 
-# Batch scan from requirements.txt
-python nexus-request.py submit-batch -r requirements.txt
+# Maven
+nexus-request scan maven org.apache.commons:commons-lang3:3.14.0
 
-# Check status
-python nexus-request.py status --job <job-id>
-python nexus-request.py status --batch <batch-id>
+# NuGet
+nexus-request scan nuget Newtonsoft.Json 13.0.3
 ```
 
-### PowerShell (Windows)
-
-```powershell
-.\nexus-request.ps1 submit -Package "flask==3.0.0"
-.\nexus-request.ps1 submit -Package "nginx==1.25" -Ecosystem docker
-.\nexus-request.ps1 submit-batch -Requirements requirements.txt
-.\nexus-request.ps1 status -Job "abc-123"
-```
-
-### Bash (Linux/Mac)
+### Rescanning
 
 ```bash
-./nexus-request.sh submit -p "flask==3.0.0"
-./nexus-request.sh submit-batch -r requirements.txt
+nexus-request rescan python     # rescan all trusted Python packages
+nexus-request rescan --all      # rescan everything
+```
+
+### Checking Status
+
+```bash
+nexus-request status <job-id>
+nexus-request status --batch <batch-id>
 ```
 
 ## How it works
 
-1. You submit a package spec (e.g., `flask==3.0.0`)
-2. The Gateway downloads it through Nexus, scans it with Trivy + OSSF + OSV
+1. You run `nexus-request scan python flask`
+2. The Gateway resolves the latest version, downloads it through Nexus, scans it with Trivy + OSSF + OSV + Syft
 3. If it passes, it's promoted to the trusted repo
-4. You can then `pip install` / `npm install` / `docker pull` normally from Nexus
+4. You can then `pip install flask` normally — Nexus serves it from the trusted repo
 
-The CLI polls the Gateway and shows progress while scanning is in progress.
+The CLI prints the Job ID and polls the Gateway, showing progress while scanning.
+
+## Ecosystem Aliases
+
+You can use common names — the CLI maps them to the right ecosystem:
+
+| You type | Resolves to |
+|----------|-------------|
+| `python`, `pip`, `pypi` | pypi |
+| `npm`, `node`, `js` | npm |
+| `docker`, `container`, `image` | docker |
+| `maven`, `java`, `mvn` | maven |
+| `nuget`, `dotnet`, `csharp` | nuget |
