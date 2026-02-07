@@ -172,6 +172,71 @@ services:
       - security-net
 
   # ---------------------------------------------------------------------------
+  # Trivy DB Updater — refreshes vulnerability database every 4 hours
+  # ---------------------------------------------------------------------------
+  trivy-db-updater:
+    image: aquasec/trivy:latest
+    container_name: trivy-db-updater
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        echo "[trivy-db-updater] Starting Trivy DB update loop (every 4h)..."
+        while true; do
+          echo "[trivy-db-updater] Downloading latest vulnerability DB..."
+          trivy image --download-db-only --cache-dir /var/trivy/cache 2>&1 && \
+            echo "[trivy-db-updater] DB update complete." || \
+            echo "[trivy-db-updater] DB update failed (will retry next cycle)."
+          echo "[trivy-db-updater] Next update in 4 hours."
+          sleep 14400
+        done
+    volumes:
+      - trivy-cache:/var/trivy/cache
+    depends_on:
+      trivy-server:
+        condition: service_healthy
+    networks:
+      - security-net
+
+  # ---------------------------------------------------------------------------
+  # Rescan Scheduler — rescans all trusted packages every 6 hours
+  # ---------------------------------------------------------------------------
+  rescan-scheduler:
+    image: alpine:3.19
+    container_name: rescan-scheduler
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        apk add --no-cache curl >/dev/null 2>&1
+        echo "[rescan-scheduler] Starting rescan loop (every 6h)..."
+        echo "[rescan-scheduler] Waiting for gateway to be ready..."
+        until curl -sf http://gateway:5000/health >/dev/null 2>&1; do sleep 10; done
+        echo "[rescan-scheduler] Gateway is up."
+        while true; do
+          echo "[rescan-scheduler] Triggering rescan of all trusted packages..."
+          if [ -n "$$TRUST_GATEWAY_API_KEY" ]; then
+            curl -sf -X POST http://gateway:5000/rescan \
+              -H "Content-Type: application/json" \
+              -H "X-API-Key: $$TRUST_GATEWAY_API_KEY" \
+              -d '{}' 2>&1 && echo " OK" || echo " FAILED (will retry next cycle)"
+          else
+            curl -sf -X POST http://gateway:5000/rescan \
+              -H "Content-Type: application/json" \
+              -d '{}' 2>&1 && echo " OK" || echo " FAILED (will retry next cycle)"
+          fi
+          echo "[rescan-scheduler] Next rescan in 6 hours."
+          sleep 21600
+        done
+    environment:
+      - TRUST_GATEWAY_API_KEY=${TRUST_GATEWAY_API_KEY:-}
+    depends_on:
+      gateway:
+        condition: service_started
+    networks:
+      - security-net
+
+  # ---------------------------------------------------------------------------
   # Nexus Setup — one-shot service to create repos, roles, users
   # ---------------------------------------------------------------------------
   # Usage: docker compose run --rm nexus-setup
