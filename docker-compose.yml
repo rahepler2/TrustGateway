@@ -125,6 +125,8 @@ services:
       dockerfile: Dockerfile
     container_name: gateway
     restart: unless-stopped
+    # Default: root (local dev). Enterprise: set CONTAINER_USER=gateway in .env
+    user: "${CONTAINER_USER:-root}"
     environment:
       # Flask
       - FLASK_HOST=0.0.0.0
@@ -164,6 +166,8 @@ services:
       nexus:
         condition: service_healthy
       trivy-server:
+        condition: service_healthy
+      ossf-worker:
         condition: service_healthy
       postgres:
         condition: service_healthy

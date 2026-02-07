@@ -77,14 +77,11 @@ class NexusClient:
             f"{parsed.scheme}://{encoded_user}:{encoded_pass}"
             f"@{parsed.netloc}/repository/{proxy_repo}/simple/"
         )
-        host = parsed.netloc.split(":")[0]
-
         cmd = [
             sys.executable, "-m", "pip", "download",
             f"{package}=={version}",
             "--no-deps", "--dest", dest_dir,
             "--index-url", proxy_url,
-            "--trusted-host", host,
         ]
         log.debug(f"Running pip download for {package}=={version}")
 
@@ -297,7 +294,6 @@ class NexusClient:
             "skopeo", "copy",
             f"docker-archive:{package_file}",
             dest,
-            "--dest-tls-verify=false",
             f"--dest-creds={creds}",
         ]
         try:
