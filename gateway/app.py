@@ -14,6 +14,7 @@ import json
 import logging
 import os
 import sys
+import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, Future
@@ -21,7 +22,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from .config import ScanVerdict, SCAN_WORKERS, FLASK_HOST, FLASK_PORT
+from .config import ScanVerdict, SCAN_WORKERS, FLASK_HOST, FLASK_PORT, API_KEY
 from .pipeline import TrustGateway
 from .db import SessionLocal, create_tables
 from .models import Job, JobStatus
@@ -30,13 +31,16 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 log = logging.getLogger("trust-gateway")
 
 # ---------------------------------------------------------------------------
-# Thread pool + in-memory job/batch tracking
+# Thread pool + in-memory job/batch tracking (lock-protected)
 # ---------------------------------------------------------------------------
 
 POOL = ThreadPoolExecutor(max_workers=SCAN_WORKERS)
+_lock = threading.Lock()
 JOBS: Dict[str, Dict] = {}
 BATCHES: Dict[str, Dict] = {}
 GATEWAY = TrustGateway()
+
+_JOB_TTL = 3600  # Evict completed in-memory jobs after 1 hour
 
 
 # ---------------------------------------------------------------------------
@@ -106,16 +110,31 @@ def _complete_job(job_id: str, future: Future):
         SessionLocal.remove()
 
 
+def _cleanup_old_jobs():
+    """Remove completed in-memory jobs older than _JOB_TTL to prevent memory leaks."""
+    now = time.time()
+    stale = [
+        jid for jid, info in JOBS.items()
+        if info["future"].done() and (now - info["submitted_at"]) > _JOB_TTL
+    ]
+    for jid in stale:
+        del JOBS[jid]
+    if stale:
+        log.info(f"Cleaned up {len(stale)} completed in-memory jobs")
+
+
 def submit_scan_job(package: str, version: str, ecosystem: str = "pypi") -> str:
     job_id = str(uuid.uuid4())
     future = POOL.submit(GATEWAY.process_package, package, version, ecosystem)
-    JOBS[job_id] = {
-        "future": future,
-        "package": package,
-        "version": version,
-        "ecosystem": ecosystem,
-        "submitted_at": time.time(),
-    }
+    with _lock:
+        JOBS[job_id] = {
+            "future": future,
+            "package": package,
+            "version": version,
+            "ecosystem": ecosystem,
+            "submitted_at": time.time(),
+        }
+        _cleanup_old_jobs()
     _persist_job(job_id, package, version, ecosystem)
     future.add_done_callback(lambda f: _complete_job(job_id, f))
     log.info(f"Submitted job {job_id} for {package}=={version} ({ecosystem})")
@@ -123,7 +142,8 @@ def submit_scan_job(package: str, version: str, ecosystem: str = "pypi") -> str:
 
 
 def get_job_status(job_id: str) -> Dict:
-    info = JOBS.get(job_id)
+    with _lock:
+        info = JOBS.get(job_id)
     if not info:
         return {"error": "unknown job id"}
     future: Future = info["future"]
@@ -170,6 +190,17 @@ def create_app():
 
     app = Flask("trust-gateway")
 
+    # --- API key authentication ---
+    @app.before_request
+    def _check_api_key():
+        if not API_KEY:
+            return  # No key configured — skip auth
+        if flask_request.path in ("/health", "/help"):
+            return  # Public endpoints
+        key = flask_request.headers.get("X-API-Key") or flask_request.args.get("api_key")
+        if key != API_KEY:
+            return jsonify({"error": "unauthorized — provide X-API-Key header"}), 401
+
     @app.route("/health", methods=["GET"])
     def health():
         return jsonify({"status": "ok"}), 200
@@ -179,14 +210,15 @@ def create_app():
         return jsonify({
             "description": "Nexus Trust Gateway API",
             "endpoints": {
-                "POST /request": "Scan one or more pinned package==version specs",
+                "POST /request": "Scan a package (version optional — resolves latest)",
                 "POST /request/batch": "Upload requirements file to vet a batch",
+                "POST /rescan": "Rescan all trusted packages for new vulnerabilities",
                 "POST /webhook/nexus": "Webhook for Nexus component-created events",
                 "GET  /job/<job_id>": "Query single job status",
                 "GET  /batch/<batch_id>/status": "Query batch status",
             },
             "ecosystems": ["pypi", "npm", "docker", "maven", "nuget"],
-            "notes": "All package specs must be pinned (pkg==version).",
+            "notes": "Version is optional — the gateway will resolve the latest version automatically.",
         }), 200
 
     @app.route("/webhook/nexus", methods=["POST"])
@@ -234,9 +266,22 @@ def create_app():
         else:
             return jsonify({"error": "provide 'package' & 'version' or 'packages' list"}), 400
 
-        unpinned = [p for (p, v) in pkg_list if v is None]
-        if unpinned:
-            return jsonify({"error": "unpinned package(s)", "unpinned": unpinned}), 400
+        # Resolve latest version for packages submitted without one
+        resolved = []
+        unresolvable = []
+        for p, v in pkg_list:
+            if v is None:
+                latest = GATEWAY.nexus.resolve_latest_version(p, ecosystem)
+                if latest:
+                    log.info(f"Resolved {p} -> {latest} ({ecosystem})")
+                    resolved.append((p, latest))
+                else:
+                    unresolvable.append(p)
+            else:
+                resolved.append((p, v))
+        pkg_list = resolved
+        if unresolvable:
+            return jsonify({"error": "could not resolve version", "packages": unresolvable}), 400
 
         job_ids = [submit_scan_job(p, v, ecosystem) for p, v in pkg_list]
 
@@ -247,7 +292,8 @@ def create_app():
         remaining = wait
         done_results = {}
         for jid, (p, v) in zip(job_ids, pkg_list):
-            fut = JOBS[jid]["future"]
+            with _lock:
+                fut = JOBS[jid]["future"]
             try:
                 verdict, report, _summary = fut.result(timeout=remaining)
                 done_results[jid] = {
@@ -299,11 +345,12 @@ def create_app():
             jid = submit_scan_job(pkg, ver, ecosystem)
             job_entries.append({"package": pkg, "version": ver, "job_id": jid})
 
-        BATCHES[batch_id] = {
-            "job_ids": [je["job_id"] for je in job_entries],
-            "submitted_at": time.time(),
-            "items": job_entries,
-        }
+        with _lock:
+            BATCHES[batch_id] = {
+                "job_ids": [je["job_id"] for je in job_entries],
+                "submitted_at": time.time(),
+                "items": job_entries,
+            }
         return jsonify({"batch_id": batch_id, "jobs": job_entries, "unpinned": unpinned}), 202
 
     @app.route("/job/<job_id>", methods=["GET"])
@@ -312,7 +359,8 @@ def create_app():
 
     @app.route("/batch/<batch_id>/status", methods=["GET"])
     def batch_status(batch_id):
-        batch = BATCHES.get(batch_id)
+        with _lock:
+            batch = BATCHES.get(batch_id)
         if not batch:
             return jsonify({"error": "unknown batch id"}), 404
 
@@ -338,6 +386,57 @@ def create_app():
             "overall": overall,
             "jobs": jobs_summary,
         }), 200
+
+    @app.route("/rescan", methods=["POST"])
+    def rescan_trusted():
+        """Rescan all packages in trusted repos against updated vulnerability databases."""
+        data = flask_request.get_json(force=True) if flask_request.is_json else {}
+        ecosystem_filter = data.get("ecosystem")
+
+        ecosystems = [ecosystem_filter] if ecosystem_filter else ["pypi", "npm", "docker", "maven", "nuget"]
+
+        all_packages = []
+        for eco in ecosystems:
+            try:
+                pkgs = GATEWAY.nexus.list_trusted_packages(eco)
+                for pkg in pkgs:
+                    pkg["ecosystem"] = eco
+                all_packages.extend(pkgs)
+            except Exception as e:
+                log.warning(f"Failed to list trusted {eco} packages: {e}")
+
+        if not all_packages:
+            return jsonify({
+                "status": "no_packages",
+                "packages_queued": 0,
+                "message": "No packages found in trusted repos",
+            }), 200
+
+        batch_id = str(uuid.uuid4())
+        job_entries = []
+        for pkg in all_packages:
+            jid = submit_scan_job(pkg["package"], pkg["version"], pkg["ecosystem"])
+            job_entries.append({
+                "package": pkg["package"],
+                "version": pkg["version"],
+                "ecosystem": pkg["ecosystem"],
+                "job_id": jid,
+            })
+
+        with _lock:
+            BATCHES[batch_id] = {
+                "job_ids": [je["job_id"] for je in job_entries],
+                "submitted_at": time.time(),
+                "items": job_entries,
+            }
+
+        log.info(f"Rescan started: {len(job_entries)} packages, batch {batch_id}")
+        return jsonify({
+            "status": "rescan_started",
+            "batch_id": batch_id,
+            "packages_queued": len(job_entries),
+            "ecosystems": ecosystems,
+        }), 202
 
     return app
 

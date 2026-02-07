@@ -337,6 +337,114 @@ class NexusClient:
         log.error(f"Raw upload failed ({resp.status_code}): {resp.text[:300]}")
         return False
 
+    # -- version resolution ---------------------------------------------------
+
+    def resolve_latest_version(self, package: str, ecosystem: str) -> Optional[str]:
+        """Query the upstream proxy repo for the latest available version of a package."""
+        repos = self.config.repos_for(ecosystem)
+        eco = ecosystem.lower()
+
+        if eco == "pypi":
+            return self._resolve_pypi_latest(package, repos["proxy"])
+        if eco == "npm":
+            return self._resolve_npm_latest(package, repos["proxy"])
+        if eco == "docker":
+            return "latest"  # Docker default tag
+        # Maven/NuGet: query Nexus search API for highest version
+        return self._resolve_nexus_search_latest(package, repos["proxy"])
+
+    def _resolve_pypi_latest(self, package: str, repo: str) -> Optional[str]:
+        """Query PyPI JSON API through Nexus proxy for latest version."""
+        url = f"{self.base}/repository/{repo}/pypi/{package}/json"
+        try:
+            resp = self.session.get(url, timeout=15)
+            if resp.status_code == 200:
+                data = resp.json()
+                version = data.get("info", {}).get("version")
+                if version:
+                    log.info(f"Resolved {package} latest version: {version}")
+                    return version
+        except Exception as e:
+            log.warning(f"PyPI version resolution failed: {e}")
+        # Fallback: Nexus search
+        return self._resolve_nexus_search_latest(package, repo)
+
+    def _resolve_npm_latest(self, package: str, repo: str) -> Optional[str]:
+        """Query npm registry metadata through Nexus proxy for latest version."""
+        url = f"{self.base}/repository/{repo}/{package}"
+        try:
+            resp = self.session.get(url, headers={"Accept": "application/json"}, timeout=15)
+            if resp.status_code == 200:
+                data = resp.json()
+                version = data.get("dist-tags", {}).get("latest")
+                if version:
+                    log.info(f"Resolved {package} latest version: {version}")
+                    return version
+        except Exception as e:
+            log.warning(f"npm version resolution failed: {e}")
+        return self._resolve_nexus_search_latest(package, repo)
+
+    def _resolve_nexus_search_latest(self, package: str, repo: str) -> Optional[str]:
+        """Fallback: use Nexus search API to find the latest version."""
+        url = f"{self.base}/service/rest/v1/search"
+        params = {"repository": repo, "name": package, "sort": "version", "direction": "desc"}
+        try:
+            resp = self.session.get(url, params=params, timeout=15)
+            if resp.status_code == 200:
+                items = resp.json().get("items", [])
+                if items:
+                    version = items[0].get("version")
+                    if version:
+                        log.info(f"Resolved {package} latest version via search: {version}")
+                        return version
+        except Exception as e:
+            log.warning(f"Nexus search version resolution failed: {e}")
+        return None
+
+    # -- listing (for rescan) -------------------------------------------------
+
+    def list_trusted_packages(self, ecosystem: str) -> list:
+        """List all unique package+version pairs in the trusted repo for an ecosystem."""
+        repos = self.config.repos_for(ecosystem)
+        trusted = repos["trusted"]
+        url = f"{self.base}/service/rest/v1/search"
+        results = []
+        continuation = None
+
+        while True:
+            params = {"repository": trusted}
+            if continuation:
+                params["continuationToken"] = continuation
+            try:
+                resp = self.session.get(url, params=params, timeout=30)
+                if resp.status_code != 200:
+                    log.warning(f"Nexus search returned {resp.status_code} for {trusted}")
+                    break
+                data = resp.json()
+                for item in data.get("items", []):
+                    name = item.get("name")
+                    version = item.get("version")
+                    if name and version:
+                        results.append({"package": name, "version": version})
+                continuation = data.get("continuationToken")
+                if not continuation:
+                    break
+            except Exception as e:
+                log.warning(f"Error listing trusted packages: {e}")
+                break
+
+        # Deduplicate
+        seen = set()
+        deduped = []
+        for r in results:
+            key = (r["package"], r["version"])
+            if key not in seen:
+                seen.add(key)
+                deduped.append(r)
+
+        log.info(f"Found {len(deduped)} unique packages in {trusted}")
+        return deduped
+
     # -- search ---------------------------------------------------------------
 
     def check_package_exists(self, repo_name: str, package: str, version: str) -> bool:

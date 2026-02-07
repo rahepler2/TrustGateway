@@ -2,15 +2,17 @@
 # nexus-request — Bash wrapper for the Trust Gateway CLI
 #
 # Usage:
-#   ./nexus-request.sh scan requests==2.32.3
-#   ./nexus-request.sh scan requests 2.32.3
-#   ./nexus-request.sh scan nginx:1.25 -e docker
-#   ./nexus-request.sh scan -f requirements.txt
-#   ./nexus-request.sh status <job_id>
+#   nexus-request scan python requests
+#   nexus-request scan python requests 2.32.3
+#   nexus-request scan docker nginx:1.25
+#   nexus-request scan python -f requirements.txt
+#   nexus-request rescan python
+#   nexus-request rescan --all
+#   nexus-request status <job_id>
 #
 # Environment:
-#   TRUST_GATEWAY_URL  default: http://localhost:5000
-#   TRUST_GATEWAY_KEY  optional Bearer token
+#   TRUST_GATEWAY_URL  default: http://localhost:5002
+#   TRUST_GATEWAY_KEY  optional API key (sent as X-API-Key header)
 
 set -euo pipefail
 

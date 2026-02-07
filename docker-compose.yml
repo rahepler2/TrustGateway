@@ -5,6 +5,7 @@ services:
   nexus:
     image: sonatype/nexus3:latest
     container_name: nexus
+    restart: unless-stopped
     ports:
       - "8081:8081"     # Web UI + API
       - "9443:9443"     # Docker group (developer pull)
@@ -30,6 +31,7 @@ services:
   trivy-server:
     image: aquasec/trivy:latest
     container_name: trivy-server
+    restart: unless-stopped
     command: ["server", "--listen", "0.0.0.0:8080", "--cache-dir", "/var/trivy/cache"]
     ports:
       - "8080:8080"
@@ -52,6 +54,7 @@ services:
       context: ./ossf-worker
       dockerfile: Dockerfile
     container_name: ossf-worker
+    restart: unless-stopped
     ports:
       - "8090:8090"
     environment:
@@ -72,6 +75,7 @@ services:
   postgres:
     image: postgres:15
     container_name: gateway-pg
+    restart: unless-stopped
     environment:
       - POSTGRES_USER=${PG_USER}
       - POSTGRES_PASSWORD=${PG_PASS}
@@ -95,6 +99,7 @@ services:
   grafana:
     image: grafana/grafana:10.4.1
     container_name: grafana
+    restart: unless-stopped
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
       - PG_USER=${PG_USER}
@@ -119,6 +124,7 @@ services:
       context: ./gateway
       dockerfile: Dockerfile
     container_name: gateway
+    restart: unless-stopped
     environment:
       # Flask
       - FLASK_HOST=0.0.0.0
@@ -145,8 +151,11 @@ services:
       - NEXUS_DOCKER_GROUP_PORT=${NEXUS_DOCKER_GROUP_PORT:-9443}
       - NEXUS_DOCKER_TRUSTED_PORT=${NEXUS_DOCKER_TRUSTED_PORT:-9444}
       - NEXUS_DOCKER_PROXY_PORT=${NEXUS_DOCKER_PROXY_PORT:-9445}
+      - NEXUS_DOCKER_QUARANTINE_PORT=${NEXUS_DOCKER_QUARANTINE_PORT:-9446}
       # Workers
       - SCAN_WORKERS=${SCAN_WORKERS:-3}
+      # API authentication (optional — set in .env to enable)
+      - TRUST_GATEWAY_API_KEY=${TRUST_GATEWAY_API_KEY:-}
     ports:
       - "5002:5000"
     depends_on:
