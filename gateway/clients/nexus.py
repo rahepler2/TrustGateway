@@ -354,9 +354,10 @@ class NexusClient:
         return self._resolve_nexus_search_latest(package, repos["proxy"])
 
     def _resolve_pypi_latest(self, package: str, repo: str) -> Optional[str]:
-        """Query PyPI JSON API through Nexus proxy for latest version."""
-        url = f"{self.base}/repository/{repo}/pypi/{package}/json"
+        """Query Nexus PyPI proxy for latest version."""
+        # 1. Try Nexus proxy JSON API
         try:
+            url = f"{self.base}/repository/{repo}/pypi/{package}/json"
             resp = self.session.get(url, timeout=15)
             if resp.status_code == 200:
                 data = resp.json()
@@ -365,14 +366,16 @@ class NexusClient:
                     log.info(f"Resolved {package} latest version: {version}")
                     return version
         except Exception as e:
-            log.warning(f"PyPI version resolution failed: {e}")
-        # Fallback: Nexus search
+            log.warning(f"Nexus proxy PyPI JSON failed: {e}")
+
+        # 2. Fallback: Nexus search API
         return self._resolve_nexus_search_latest(package, repo)
 
     def _resolve_npm_latest(self, package: str, repo: str) -> Optional[str]:
-        """Query npm registry metadata through Nexus proxy for latest version."""
-        url = f"{self.base}/repository/{repo}/{package}"
+        """Query Nexus npm proxy for latest version."""
+        # 1. Try Nexus proxy
         try:
+            url = f"{self.base}/repository/{repo}/{package}"
             resp = self.session.get(url, headers={"Accept": "application/json"}, timeout=15)
             if resp.status_code == 200:
                 data = resp.json()
@@ -381,7 +384,9 @@ class NexusClient:
                     log.info(f"Resolved {package} latest version: {version}")
                     return version
         except Exception as e:
-            log.warning(f"npm version resolution failed: {e}")
+            log.warning(f"Nexus proxy npm resolution failed: {e}")
+
+        # 2. Fallback: Nexus search
         return self._resolve_nexus_search_latest(package, repo)
 
     def _resolve_nexus_search_latest(self, package: str, repo: str) -> Optional[str]:
