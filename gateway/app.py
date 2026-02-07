@@ -14,6 +14,7 @@ import json
 import logging
 import os
 import sys
+import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, Future
@@ -21,7 +22,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from .config import ScanVerdict, SCAN_WORKERS, FLASK_HOST, FLASK_PORT
+from .config import ScanVerdict, SCAN_WORKERS, FLASK_HOST, FLASK_PORT, API_KEY
 from .pipeline import TrustGateway
 from .db import SessionLocal, create_tables
 from .models import Job, JobStatus
@@ -30,13 +31,16 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 log = logging.getLogger("trust-gateway")
 
 # ---------------------------------------------------------------------------
-# Thread pool + in-memory job/batch tracking
+# Thread pool + in-memory job/batch tracking (lock-protected)
 # ---------------------------------------------------------------------------
 
 POOL = ThreadPoolExecutor(max_workers=SCAN_WORKERS)
+_lock = threading.Lock()
 JOBS: Dict[str, Dict] = {}
 BATCHES: Dict[str, Dict] = {}
 GATEWAY = TrustGateway()
+
+_JOB_TTL = 3600  # Evict completed in-memory jobs after 1 hour
 
 
 # ---------------------------------------------------------------------------
@@ -106,16 +110,31 @@ def _complete_job(job_id: str, future: Future):
         SessionLocal.remove()
 
 
+def _cleanup_old_jobs():
+    """Remove completed in-memory jobs older than _JOB_TTL to prevent memory leaks."""
+    now = time.time()
+    stale = [
+        jid for jid, info in JOBS.items()
+        if info["future"].done() and (now - info["submitted_at"]) > _JOB_TTL
+    ]
+    for jid in stale:
+        del JOBS[jid]
+    if stale:
+        log.info(f"Cleaned up {len(stale)} completed in-memory jobs")
+
+
 def submit_scan_job(package: str, version: str, ecosystem: str = "pypi") -> str:
     job_id = str(uuid.uuid4())
     future = POOL.submit(GATEWAY.process_package, package, version, ecosystem)
-    JOBS[job_id] = {
-        "future": future,
-        "package": package,
-        "version": version,
-        "ecosystem": ecosystem,
-        "submitted_at": time.time(),
-    }
+    with _lock:
+        JOBS[job_id] = {
+            "future": future,
+            "package": package,
+            "version": version,
+            "ecosystem": ecosystem,
+            "submitted_at": time.time(),
+        }
+        _cleanup_old_jobs()
     _persist_job(job_id, package, version, ecosystem)
     future.add_done_callback(lambda f: _complete_job(job_id, f))
     log.info(f"Submitted job {job_id} for {package}=={version} ({ecosystem})")
@@ -123,7 +142,8 @@ def submit_scan_job(package: str, version: str, ecosystem: str = "pypi") -> str:
 
 
 def get_job_status(job_id: str) -> Dict:
-    info = JOBS.get(job_id)
+    with _lock:
+        info = JOBS.get(job_id)
     if not info:
         return {"error": "unknown job id"}
     future: Future = info["future"]
@@ -169,6 +189,17 @@ def create_app():
     _init_db()
 
     app = Flask("trust-gateway")
+
+    # --- API key authentication ---
+    @app.before_request
+    def _check_api_key():
+        if not API_KEY:
+            return  # No key configured — skip auth
+        if flask_request.path in ("/health", "/help"):
+            return  # Public endpoints
+        key = flask_request.headers.get("X-API-Key") or flask_request.args.get("api_key")
+        if key != API_KEY:
+            return jsonify({"error": "unauthorized — provide X-API-Key header"}), 401
 
     @app.route("/health", methods=["GET"])
     def health():
@@ -247,7 +278,8 @@ def create_app():
         remaining = wait
         done_results = {}
         for jid, (p, v) in zip(job_ids, pkg_list):
-            fut = JOBS[jid]["future"]
+            with _lock:
+                fut = JOBS[jid]["future"]
             try:
                 verdict, report, _summary = fut.result(timeout=remaining)
                 done_results[jid] = {
@@ -299,11 +331,12 @@ def create_app():
             jid = submit_scan_job(pkg, ver, ecosystem)
             job_entries.append({"package": pkg, "version": ver, "job_id": jid})
 
-        BATCHES[batch_id] = {
-            "job_ids": [je["job_id"] for je in job_entries],
-            "submitted_at": time.time(),
-            "items": job_entries,
-        }
+        with _lock:
+            BATCHES[batch_id] = {
+                "job_ids": [je["job_id"] for je in job_entries],
+                "submitted_at": time.time(),
+                "items": job_entries,
+            }
         return jsonify({"batch_id": batch_id, "jobs": job_entries, "unpinned": unpinned}), 202
 
     @app.route("/job/<job_id>", methods=["GET"])
@@ -312,7 +345,8 @@ def create_app():
 
     @app.route("/batch/<batch_id>/status", methods=["GET"])
     def batch_status(batch_id):
-        batch = BATCHES.get(batch_id)
+        with _lock:
+            batch = BATCHES.get(batch_id)
         if not batch:
             return jsonify({"error": "unknown batch id"}), 404
 

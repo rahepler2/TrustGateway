@@ -48,7 +48,7 @@ FILE_ECOSYSTEM_MAP = {
 def _headers():
     h = {"Accept": "application/json"}
     if GATEWAY_KEY:
-        h["Authorization"] = f"Bearer {GATEWAY_KEY}"
+        h["X-API-Key"] = GATEWAY_KEY
     return h
 
 

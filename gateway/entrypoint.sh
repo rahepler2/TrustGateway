@@ -13,5 +13,18 @@ until curl -sf http://trivy-server:8080/healthz >/dev/null 2>&1; do
 done
 echo "[entrypoint] Trivy is up"
 
-echo "[entrypoint] Starting Trust Gateway..."
-exec python -m gateway.app serve --port "${FLASK_PORT:-5000}"
+PORT="${FLASK_PORT:-5000}"
+# Single process with multiple threads — keeps shared state (JOBS, thread pool)
+# in one process while handling concurrent HTTP requests.
+THREADS="${GUNICORN_THREADS:-8}"
+
+echo "[entrypoint] Starting Trust Gateway (gunicorn, ${THREADS} threads, port ${PORT})..."
+exec gunicorn \
+    "gateway.app:create_app()" \
+    --bind "0.0.0.0:${PORT}" \
+    --workers 1 \
+    --threads "${THREADS}" \
+    --timeout 300 \
+    --graceful-timeout 30 \
+    --access-logfile - \
+    --error-logfile -

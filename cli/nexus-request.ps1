@@ -17,7 +17,7 @@
 .NOTES
     Environment variables:
         TRUST_GATEWAY_URL  — Gateway API URL (default: http://localhost:5000)
-        TRUST_GATEWAY_KEY  — Optional Bearer token
+        TRUST_GATEWAY_KEY  — Optional API key (sent as X-API-Key header)
 #>
 
 param(
@@ -47,7 +47,7 @@ $GatewayUrl = if ($env:TRUST_GATEWAY_URL) { $env:TRUST_GATEWAY_URL.TrimEnd("/") 
 
 $Headers = @{ "Accept" = "application/json"; "Content-Type" = "application/json" }
 if ($env:TRUST_GATEWAY_KEY) {
-    $Headers["Authorization"] = "Bearer $($env:TRUST_GATEWAY_KEY)"
+    $Headers["X-API-Key"] = $env:TRUST_GATEWAY_KEY
 }
 
 $FileEcoMap = @{
@@ -65,7 +65,7 @@ function Wait-ForJob($jobId, $timeout) {
     $start = Get-Date
     while (((Get-Date) - $start).TotalSeconds -lt $timeout) {
         try {
-            $r = Invoke-RestMethod -Uri "$GatewayUrl/job/$jobId" -Headers @{ "Accept"="application/json" } -TimeoutSec 10
+            $r = Invoke-RestMethod -Uri "$GatewayUrl/job/$jobId" -Headers $Headers -TimeoutSec 10
             if ($r.status -eq "done" -or $r.status -eq "error") {
                 Write-Host ""
                 return $r
@@ -182,10 +182,10 @@ switch ($Command) {
 
     "status" {
         if ($Batch) {
-            $r = Invoke-RestMethod -Uri "$GatewayUrl/batch/$Batch/status" -Headers @{ "Accept"="application/json" } -TimeoutSec 10
+            $r = Invoke-RestMethod -Uri "$GatewayUrl/batch/$Batch/status" -Headers $Headers -TimeoutSec 10
             $r | ConvertTo-Json -Depth 10
         } elseif ($Args_ -and $Args_.Count -gt 0) {
-            $r = Invoke-RestMethod -Uri "$GatewayUrl/job/$($Args_[0])" -Headers @{ "Accept"="application/json" } -TimeoutSec 10
+            $r = Invoke-RestMethod -Uri "$GatewayUrl/job/$($Args_[0])" -Headers $Headers -TimeoutSec 10
             $r | ConvertTo-Json -Depth 10
         } else {
             Write-Error "Provide a job ID or -Batch <batch_id>"
