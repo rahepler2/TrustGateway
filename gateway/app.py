@@ -22,7 +22,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from .config import ScanVerdict, SCAN_WORKERS, FLASK_HOST, FLASK_PORT, API_KEY
+from .config import ScanVerdict, SCAN_WORKERS, FLASK_HOST, FLASK_PORT, API_KEY, RESCAN_INTERVAL
 from .pipeline import TrustGateway
 from .db import SessionLocal, create_tables
 from .models import Job, JobStatus
@@ -41,6 +41,7 @@ BATCHES: Dict[str, Dict] = {}
 GATEWAY = TrustGateway()
 
 _JOB_TTL = 3600  # Evict completed in-memory jobs after 1 hour
+_rescan_thread_started = False
 
 
 # ---------------------------------------------------------------------------
@@ -180,6 +181,62 @@ def parse_spec(spec: str) -> Tuple[Optional[str], Optional[str]]:
 
 
 # ---------------------------------------------------------------------------
+# Scheduled rescan
+# ---------------------------------------------------------------------------
+
+def _run_rescan(ecosystem_filter: Optional[str] = None) -> dict:
+    """Rescan all trusted packages. Returns summary dict."""
+    ecosystems = [ecosystem_filter] if ecosystem_filter else ["pypi", "npm", "docker", "maven", "nuget"]
+
+    all_packages = []
+    for eco in ecosystems:
+        try:
+            pkgs = GATEWAY.nexus.list_trusted_packages(eco)
+            for pkg in pkgs:
+                pkg["ecosystem"] = eco
+            all_packages.extend(pkgs)
+        except Exception as e:
+            log.warning(f"Failed to list trusted {eco} packages: {e}")
+
+    if not all_packages:
+        return {"status": "no_packages", "packages_queued": 0,
+                "message": "No packages found in trusted repos"}
+
+    batch_id = str(uuid.uuid4())
+    job_entries = []
+    for pkg in all_packages:
+        jid = submit_scan_job(pkg["package"], pkg["version"], pkg["ecosystem"])
+        job_entries.append({
+            "package": pkg["package"], "version": pkg["version"],
+            "ecosystem": pkg["ecosystem"], "job_id": jid,
+        })
+
+    with _lock:
+        BATCHES[batch_id] = {
+            "job_ids": [je["job_id"] for je in job_entries],
+            "submitted_at": time.time(),
+            "items": job_entries,
+        }
+
+    log.info(f"Rescan started: {len(job_entries)} packages, batch {batch_id}")
+    return {"status": "rescan_started", "batch_id": batch_id,
+            "packages_queued": len(job_entries), "ecosystems": ecosystems}
+
+
+def _rescan_scheduler():
+    """Background thread: triggers a full rescan every RESCAN_INTERVAL seconds."""
+    log.info(f"Rescan scheduler started (interval={RESCAN_INTERVAL}s / {RESCAN_INTERVAL // 3600}h)")
+    while True:
+        time.sleep(RESCAN_INTERVAL)
+        try:
+            log.info("Scheduled rescan triggered")
+            result = _run_rescan()
+            log.info(f"Scheduled rescan result: {result.get('packages_queued', 0)} packages queued")
+        except Exception as e:
+            log.error(f"Scheduled rescan failed: {e}", exc_info=True)
+
+
+# ---------------------------------------------------------------------------
 # Flask server
 # ---------------------------------------------------------------------------
 
@@ -187,6 +244,13 @@ def create_app():
     from flask import Flask, request as flask_request, jsonify
 
     _init_db()
+
+    # Start background rescan scheduler (once, even with gunicorn preload)
+    global _rescan_thread_started
+    if RESCAN_INTERVAL > 0 and not _rescan_thread_started:
+        _rescan_thread_started = True
+        t = threading.Thread(target=_rescan_scheduler, daemon=True)
+        t.start()
 
     app = Flask("trust-gateway")
 
@@ -391,52 +455,9 @@ def create_app():
     def rescan_trusted():
         """Rescan all packages in trusted repos against updated vulnerability databases."""
         data = flask_request.get_json(force=True) if flask_request.is_json else {}
-        ecosystem_filter = data.get("ecosystem")
-
-        ecosystems = [ecosystem_filter] if ecosystem_filter else ["pypi", "npm", "docker", "maven", "nuget"]
-
-        all_packages = []
-        for eco in ecosystems:
-            try:
-                pkgs = GATEWAY.nexus.list_trusted_packages(eco)
-                for pkg in pkgs:
-                    pkg["ecosystem"] = eco
-                all_packages.extend(pkgs)
-            except Exception as e:
-                log.warning(f"Failed to list trusted {eco} packages: {e}")
-
-        if not all_packages:
-            return jsonify({
-                "status": "no_packages",
-                "packages_queued": 0,
-                "message": "No packages found in trusted repos",
-            }), 200
-
-        batch_id = str(uuid.uuid4())
-        job_entries = []
-        for pkg in all_packages:
-            jid = submit_scan_job(pkg["package"], pkg["version"], pkg["ecosystem"])
-            job_entries.append({
-                "package": pkg["package"],
-                "version": pkg["version"],
-                "ecosystem": pkg["ecosystem"],
-                "job_id": jid,
-            })
-
-        with _lock:
-            BATCHES[batch_id] = {
-                "job_ids": [je["job_id"] for je in job_entries],
-                "submitted_at": time.time(),
-                "items": job_entries,
-            }
-
-        log.info(f"Rescan started: {len(job_entries)} packages, batch {batch_id}")
-        return jsonify({
-            "status": "rescan_started",
-            "batch_id": batch_id,
-            "packages_queued": len(job_entries),
-            "ecosystems": ecosystems,
-        }), 202
+        result = _run_rescan(data.get("ecosystem"))
+        code = 200 if result.get("status") == "no_packages" else 202
+        return jsonify(result), code
 
     return app
 
