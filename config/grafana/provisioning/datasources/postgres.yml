@@ -5,8 +5,8 @@ datasources:
     uid: gateway-pg
     type: postgres
     access: proxy
-    url: gateway-pg:5432
-    database: gatewaydb
+    url: postgres:5432
+    database: $PG_DB
     user: $PG_USER
     secureJsonData:
       password: $PG_PASS
