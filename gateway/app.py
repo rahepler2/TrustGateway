@@ -361,11 +361,14 @@ def create_app():
             with _lock:
                 fut = JOBS[jid]["future"]
             try:
-                verdict, report, _summary = fut.result(timeout=remaining)
-                done_results[jid] = {
+                verdict, report, scan_summary = fut.result(timeout=remaining)
+                result_entry = {
                     "package": p, "version": v,
                     "verdict": verdict.value, "report": str(report),
                 }
+                if scan_summary.get("reasons"):
+                    result_entry["reasons"] = scan_summary["reasons"]
+                done_results[jid] = result_entry
             except Exception as e:
                 err_msg = str(e) or f"{type(e).__name__}"
                 log.error(f"Scan error for {p}=={v}: {type(e).__name__}: {e}", exc_info=True)

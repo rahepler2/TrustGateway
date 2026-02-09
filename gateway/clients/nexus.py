@@ -92,8 +92,14 @@ class NexusClient:
             return None
 
         if result.returncode != 0:
-            log.error(f"pip download failed (exit {result.returncode})")
-            log.debug(result.stderr[:800])
+            stderr = result.stderr or ""
+            if "no matching distribution" in stderr.lower() or "could not find a version" in stderr.lower():
+                log.error(f"Version {version} not found for {package} — check that this version exists")
+            elif "no such package" in stderr.lower() or "404" in stderr:
+                log.error(f"Package '{package}' not found on registry")
+            else:
+                log.error(f"pip download failed (exit {result.returncode})")
+            log.debug(stderr[:800])
             return None
 
         files = list(Path(dest_dir).iterdir())

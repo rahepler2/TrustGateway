@@ -217,7 +217,10 @@ class TrustGateway:
             )
             if not package_file:
                 log.error(f"Failed to download {package}=={version}")
-                return ScanVerdict.ERROR, Path("/dev/null"), {}
+                return ScanVerdict.ERROR, Path("/dev/null"), {
+                    "reasons": [f"Download failed for {package}=={version} — "
+                                f"verify the package name and version exist on the public registry"],
+                }
 
             # Step 2: Extract (skip for Docker — Trivy scans images directly)
             if is_docker:
