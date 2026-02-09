@@ -12,7 +12,7 @@ RUN go build -o /usr/local/bin/analyze ./cmd/analyze/
 FROM python:3.11-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates strace \
+    ca-certificates strace curl \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /usr/local/bin/analyze /usr/local/bin/analyze
