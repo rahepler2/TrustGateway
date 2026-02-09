@@ -77,12 +77,17 @@ class NexusClient:
             f"{parsed.scheme}://{encoded_user}:{encoded_pass}"
             f"@{parsed.netloc}/repository/{proxy_repo}/simple/"
         )
+        host = parsed.netloc.split(":")[0]
         cmd = [
             sys.executable, "-m", "pip", "download",
             f"{package}=={version}",
             "--no-deps", "--dest", dest_dir,
             "--index-url", proxy_url,
         ]
+        # Internal container network uses HTTP — trusted-host is safe here
+        # since this is gateway→nexus on the Docker bridge, not external traffic
+        if parsed.scheme == "http":
+            cmd.extend(["--trusted-host", host])
         log.debug(f"Running pip download for {package}=={version}")
 
         try:
