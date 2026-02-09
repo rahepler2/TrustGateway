@@ -9,7 +9,7 @@ WORKDIR /src/package-analysis
 RUN go build -o /usr/local/bin/analyze ./cmd/analyze/
 
 # ---------------------------------------------------------------------------
-FROM python:3.11-slim
+FROM python:3.13-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates strace curl \

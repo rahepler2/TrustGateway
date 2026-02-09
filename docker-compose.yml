@@ -210,7 +210,7 @@ services:
   # ---------------------------------------------------------------------------
   # Usage: docker compose run --rm nexus-setup
   nexus-setup:
-    image: python:3.11-slim
+    image: python:3.13-slim
     container_name: nexus-setup
     environment:
       - NEXUS_URL=http://nexus:8081
