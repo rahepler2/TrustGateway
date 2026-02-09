@@ -1,6 +1,16 @@
 #!/usr/bin/env bash
 set -e
 
+# If running as non-root, ensure docker socket is accessible
+if [ "$(id -u)" != "0" ] && [ -S /var/run/docker.sock ]; then
+    DOCKER_GID=$(stat -c '%g' /var/run/docker.sock)
+    if ! id -nG | grep -qw "$(stat -c '%G' /var/run/docker.sock)" 2>/dev/null; then
+        echo "[entrypoint] WARNING: Docker socket (GID ${DOCKER_GID}) not accessible to current user."
+        echo "[entrypoint] Docker/container image scanning may fail."
+        echo "[entrypoint] To fix: set CONTAINER_USER=root or add user to docker group."
+    fi
+fi
+
 echo "[entrypoint] Waiting for Nexus..."
 until curl -sf http://nexus:8081/service/rest/v1/status >/dev/null 2>&1; do
     sleep 3
@@ -19,6 +29,7 @@ PORT="${FLASK_PORT:-5000}"
 THREADS="${GUNICORN_THREADS:-8}"
 
 echo "[entrypoint] Starting Trust Gateway (gunicorn, ${THREADS} threads, port ${PORT})..."
+echo "[entrypoint] Running as user: $(whoami) (uid=$(id -u))"
 exec gunicorn \
     "gateway.app:create_app()" \
     --bind "0.0.0.0:${PORT}" \

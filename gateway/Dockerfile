@@ -43,8 +43,12 @@ COPY . /app/gateway/
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-# Create data dirs
-RUN mkdir -p /data /app/scan-reports
+# Create non-root user (enterprise deployments should run as this user)
+RUN groupadd -r gateway && useradd -r -g gateway -d /app -s /sbin/nologin gateway
+
+# Create data dirs and set ownership
+RUN mkdir -p /data /app/scan-reports && \
+    chown -R gateway:gateway /data /app/scan-reports /app
 
 ENV PYTHONUNBUFFERED=1
 EXPOSE 5000

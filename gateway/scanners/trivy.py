@@ -38,7 +38,7 @@ class TrivyScanner:
 
         if not shutil.which("trivy"):
             log.error("[Trivy] Binary not found in PATH")
-            return {"error": "trivy binary not found", "Results": []}
+            return {"error": "trivy binary not found", "Results": [], "scanner_failed": True}
 
         if mode == "image":
             return self._scan_image(target, output_file)
@@ -66,7 +66,7 @@ class TrivyScanner:
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
         except subprocess.TimeoutExpired:
             log.error("[Trivy] Scan timed out (300s)")
-            return {"error": "timeout", "Results": []}
+            return {"error": "timeout", "Results": [], "scanner_failed": True}
 
         if result.returncode not in (0, 1):
             log.warning(f"[Trivy] Exit code {result.returncode}: {result.stderr[:300]}")
@@ -78,7 +78,7 @@ class TrivyScanner:
         if output_file.exists():
             with open(output_file) as f:
                 return json.load(f)
-        return {"error": result.stderr[:500], "Results": []}
+        return {"error": result.stderr[:500], "Results": [], "scanner_failed": True}
 
     def _scan_fs_local(self, scan_dir: Path, output_file: Path) -> dict:
         """
@@ -98,7 +98,7 @@ class TrivyScanner:
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
         except subprocess.TimeoutExpired:
             log.error("[Trivy] Local scan timed out")
-            return {"error": "timeout", "Results": []}
+            return {"error": "timeout", "Results": [], "scanner_failed": True}
 
         if result.returncode not in (0, 1):
             log.warning(f"[Trivy] Exit code {result.returncode}: {result.stderr[:200]}")
@@ -106,7 +106,7 @@ class TrivyScanner:
         if output_file.exists():
             with open(output_file) as f:
                 return json.load(f)
-        return {"error": result.stderr[:500], "Results": []}
+        return {"error": result.stderr[:500], "Results": [], "scanner_failed": True}
 
     def _scan_image(self, image_ref: Path, output_file: Path) -> dict:
         """
@@ -130,7 +130,7 @@ class TrivyScanner:
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
         except subprocess.TimeoutExpired:
             log.error("[Trivy] Image scan timed out (600s)")
-            return {"error": "timeout", "Results": []}
+            return {"error": "timeout", "Results": [], "scanner_failed": True}
 
         if result.returncode not in (0, 1):
             log.warning(f"[Trivy] Exit code {result.returncode}: {result.stderr[:300]}")
@@ -138,4 +138,4 @@ class TrivyScanner:
         if output_file.exists():
             with open(output_file) as f:
                 return json.load(f)
-        return {"error": result.stderr[:500], "Results": []}
+        return {"error": result.stderr[:500], "Results": [], "scanner_failed": True}

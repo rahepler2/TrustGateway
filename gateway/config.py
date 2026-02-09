@@ -95,7 +95,7 @@ class ScanPolicy:
         "MIT", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "ISC",
     ])
     block_on_network_activity: bool = os.getenv("POLICY_BLOCK_NET", "true").lower() == "true"
-    block_on_file_system_access: bool = os.getenv("POLICY_BLOCK_FS", "false").lower() == "true"
+    block_on_file_system_access: bool = os.getenv("POLICY_BLOCK_FS", "true").lower() == "true"
     block_on_known_malware: bool = os.getenv("POLICY_BLOCK_MALWARE", "true").lower() == "true"
 
 

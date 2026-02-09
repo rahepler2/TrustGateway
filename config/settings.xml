@@ -13,7 +13,7 @@
     <mirror>
       <id>nexus-maven</id>
       <mirrorOf>*</mirrorOf>
-      <url>http://<nexus-host>:8081/repository/maven-group/</url>
+      <url>https://<nexus-host>:8443/repository/maven-group/</url>
     </mirror>
   </mirrors>
 

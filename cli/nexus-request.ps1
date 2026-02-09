@@ -19,7 +19,7 @@
 
 .NOTES
     Environment variables:
-        TRUST_GATEWAY_URL  — Gateway API URL (default: http://localhost:5002)
+        TRUST_GATEWAY_URL  — Gateway API URL (default: https://localhost:5002)
         TRUST_GATEWAY_KEY  — Optional API key (sent as X-API-Key header)
 #>
 
@@ -43,7 +43,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$GatewayUrl = if ($env:TRUST_GATEWAY_URL) { $env:TRUST_GATEWAY_URL.TrimEnd("/") } else { "http://localhost:5002" }
+$GatewayUrl = if ($env:TRUST_GATEWAY_URL) { $env:TRUST_GATEWAY_URL.TrimEnd("/") } else { "https://localhost:5002" }
 
 $Headers = @{ "Accept" = "application/json"; "Content-Type" = "application/json" }
 if ($env:TRUST_GATEWAY_KEY) {

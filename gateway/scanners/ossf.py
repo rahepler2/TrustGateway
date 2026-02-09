@@ -40,13 +40,13 @@ class OSSFScanner:
             if resp.status_code == 200:
                 return resp.json()
             log.warning(f"[OSSF] Worker returned {resp.status_code}: {resp.text[:300]}")
-            return {"error": f"worker returned {resp.status_code}", "skipped": True}
+            return {"error": f"worker returned {resp.status_code}", "skipped": True, "scanner_failed": True}
         except http_requests.ConnectionError:
-            log.warning("[OSSF] Worker unreachable — skipping behavioral analysis")
-            return {"error": "worker unreachable", "skipped": True}
+            log.error("[OSSF] Worker unreachable — blocking package (fail-closed)")
+            return {"error": "worker unreachable", "skipped": True, "scanner_failed": True}
         except http_requests.Timeout:
             log.error("[OSSF] Worker timed out")
-            return {"error": "timeout", "skipped": True}
+            return {"error": "timeout", "skipped": True, "scanner_failed": True}
         except Exception as e:
             log.error(f"[OSSF] Unexpected error: {e}")
-            return {"error": str(e), "skipped": True}
+            return {"error": str(e), "skipped": True, "scanner_failed": True}

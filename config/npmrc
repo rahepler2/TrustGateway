@@ -5,5 +5,5 @@
 #
 # Replace <nexus-host> with your Nexus server hostname/IP.
 
-registry=http://<nexus-host>:8081/repository/npm-group/
+registry=https://<nexus-host>:8443/repository/npm-group/
 always-auth=true

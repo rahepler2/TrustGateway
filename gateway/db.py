@@ -24,5 +24,5 @@ def create_tables():
                 "ALTER TABLE jobs ALTER COLUMN result TYPE jsonb USING result::jsonb"
             ))
             log.info("Migrated jobs.result column to jsonb")
-    except Exception:
-        pass  # already jsonb or table doesn't exist yet
+    except Exception as e:
+        log.debug(f"jsonb migration skipped (already migrated or new table): {e}")

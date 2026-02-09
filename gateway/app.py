@@ -76,8 +76,8 @@ def _persist_job(job_id: str, package: str, version: str, ecosystem: str):
         log.warning(f"Failed to persist job {job_id}: {e}")
         try:
             session.rollback()
-        except Exception:
-            pass
+        except Exception as rollback_err:
+            log.debug(f"Rollback also failed for job {job_id}: {rollback_err}")
     finally:
         SessionLocal.remove()
 
@@ -106,8 +106,8 @@ def _complete_job(job_id: str, future: Future):
         log.warning(f"Failed to update job {job_id}: {e}")
         try:
             session.rollback()
-        except Exception:
-            pass
+        except Exception as rollback_err:
+            log.debug(f"Rollback also failed for job {job_id}: {rollback_err}")
     finally:
         SessionLocal.remove()
 
@@ -361,11 +361,14 @@ def create_app():
             with _lock:
                 fut = JOBS[jid]["future"]
             try:
-                verdict, report, _summary = fut.result(timeout=remaining)
-                done_results[jid] = {
+                verdict, report, scan_summary = fut.result(timeout=remaining)
+                result_entry = {
                     "package": p, "version": v,
                     "verdict": verdict.value, "report": str(report),
                 }
+                if scan_summary.get("reasons"):
+                    result_entry["reasons"] = scan_summary["reasons"]
+                done_results[jid] = result_entry
             except Exception as e:
                 err_msg = str(e) or f"{type(e).__name__}"
                 log.error(f"Scan error for {p}=={v}: {type(e).__name__}: {e}", exc_info=True)

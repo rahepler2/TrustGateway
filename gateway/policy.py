@@ -27,6 +27,17 @@ class PolicyEvaluator:
         reasons: List[str] = []
         verdict = ScanVerdict.PASS
 
+        # -- Fail-closed: if any scanner errored, block the package ----------
+        if trivy_results.get("scanner_failed"):
+            reasons.append(f"Trivy scanner failed: {trivy_results.get('error', 'unknown')}")
+            verdict = ScanVerdict.FAIL
+        if ossf_results.get("scanner_failed"):
+            reasons.append(f"OSSF scanner failed: {ossf_results.get('error', 'unknown')}")
+            verdict = ScanVerdict.FAIL
+        if osv_results.get("scanner_failed"):
+            reasons.append(f"OSV scanner failed: {osv_results.get('error', 'unknown')}")
+            verdict = ScanVerdict.FAIL
+
         # -- Trivy: CVE / secret checks --------------------------------------
         for result in trivy_results.get("Results", []) or []:
             for vuln in result.get("Vulnerabilities", []) or []:

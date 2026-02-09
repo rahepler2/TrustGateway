@@ -42,7 +42,7 @@ class OSVScanner:
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
         except subprocess.TimeoutExpired:
             log.error("[OSV] Local osv-scanner timed out")
-            return {"skipped": True, "results": []}
+            return {"skipped": True, "results": [], "scanner_failed": True}
 
         try:
             data = json.loads(result.stdout) if result.stdout.strip() else {"results": []}
@@ -67,8 +67,8 @@ class OSVScanner:
             if resp.status_code == 200:
                 data = resp.json()
                 return {"results": data.get("vulns", [])}
-            log.warning(f"[OSV] API returned {resp.status_code}")
-            return {"results": []}
+            log.error(f"[OSV] API returned {resp.status_code}")
+            return {"results": [], "scanner_failed": True}
         except Exception as e:
-            log.warning(f"[OSV] API error: {e}")
-            return {"results": []}
+            log.error(f"[OSV] API error: {e}")
+            return {"results": [], "scanner_failed": True}

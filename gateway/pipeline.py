@@ -100,8 +100,8 @@ def _extract_scan_summary(all_results: dict, sbom_file: str | None) -> dict:
                     "type": comp.get("type", ""),
                     "license": ", ".join(comp_licenses) if comp_licenses else "",
                 })
-        except Exception:
-            pass
+        except Exception as e:
+            log.warning(f"Failed to parse SBOM file for license data: {e}")
 
     return {
         "trivy": cve_counts,
@@ -113,6 +113,30 @@ def _extract_scan_summary(all_results: dict, sbom_file: str | None) -> dict:
     }
 
 
+def _safe_extract_zip(zf: zipfile.ZipFile, extract_dir: Path):
+    """Extract zip ensuring no path traversal (ZIP Slip prevention)."""
+    resolved_base = extract_dir.resolve()
+    for info in zf.infolist():
+        target = (extract_dir / info.filename).resolve()
+        if not str(target).startswith(str(resolved_base)):
+            raise ValueError(f"Zip Slip detected: {info.filename} escapes extraction directory")
+    zf.extractall(extract_dir)
+
+
+def _safe_extract_tar(tf, extract_dir: Path):
+    """Extract tar ensuring no path traversal (ZIP Slip prevention)."""
+    resolved_base = extract_dir.resolve()
+    for member in tf.getmembers():
+        target = (extract_dir / member.name).resolve()
+        if not str(target).startswith(str(resolved_base)):
+            raise ValueError(f"Path traversal detected: {member.name} escapes extraction directory")
+        if member.issym() or member.islnk():
+            link_target = (extract_dir / member.linkname).resolve()
+            if not str(link_target).startswith(str(resolved_base)):
+                raise ValueError(f"Symlink traversal detected: {member.name} -> {member.linkname}")
+    tf.extractall(path=extract_dir)
+
+
 def extract_package(package_path: Path, extract_dir: Path) -> Path:
     """Extract a downloaded package archive into extract_dir."""
     extract_dir.mkdir(parents=True, exist_ok=True)
@@ -121,18 +145,18 @@ def extract_package(package_path: Path, extract_dir: Path) -> Path:
     if filename.endswith(".whl") or filename.endswith(".zip"):
         log.info(f"Extracting zip/wheel: {package_path.name}")
         with zipfile.ZipFile(package_path, "r") as zf:
-            zf.extractall(extract_dir)
+            _safe_extract_zip(zf, extract_dir)
     elif filename.endswith((".tar.gz", ".tgz", ".tar.bz2")):
         import tarfile
         log.info(f"Extracting tarball: {package_path.name}")
         mode = "r:gz" if filename.endswith((".tar.gz", ".tgz")) else "r:bz2"
         with tarfile.open(package_path, mode) as tf:
-            tf.extractall(path=extract_dir)
+            _safe_extract_tar(tf, extract_dir)
     elif filename.endswith(".tar"):
         import tarfile
         log.info(f"Extracting tar: {package_path.name}")
         with tarfile.open(package_path, "r:") as tf:
-            tf.extractall(path=extract_dir)
+            _safe_extract_tar(tf, extract_dir)
     else:
         log.warning(f"Unknown format: {filename}, copying as-is")
         shutil.copy2(package_path, extract_dir)
@@ -177,13 +201,6 @@ class TrustGateway:
         log.info(f"Processing: {package}=={version} ({eco_osv})")
         log.info("=" * 60)
 
-        # Skip if already in trusted
-        if not is_docker and self.nexus.check_package_exists(
-            repos["trusted"], package, version
-        ):
-            log.info(f"{package}=={version} already in trusted repo — skipping")
-            return ScanVerdict.PASS, Path("/dev/null"), {}
-
         with tempfile.TemporaryDirectory(prefix="trust-gateway-", dir="/data") as tmpdir:
             work_dir = Path(tmpdir)
             download_dir = work_dir / "downloads"
@@ -200,7 +217,10 @@ class TrustGateway:
             )
             if not package_file:
                 log.error(f"Failed to download {package}=={version}")
-                return ScanVerdict.ERROR, Path("/dev/null"), {}
+                return ScanVerdict.ERROR, Path("/dev/null"), {
+                    "reasons": [f"Download failed for {package}=={version} — "
+                                f"verify the package name and version exist on the public registry"],
+                }
 
             # Step 2: Extract (skip for Docker — Trivy scans images directly)
             if is_docker:
@@ -251,7 +271,7 @@ class TrustGateway:
                 package, version, eco_osv, verdict, reasons, all_results, results_dir
             )
 
-            # Promote or quarantine
+            # Promote or quarantine — only PASS goes to trusted (zero-trust)
             if verdict == ScanVerdict.PASS:
                 log.info(f"PASSED — Promoting {package}=={version} to trusted repo")
                 self.nexus.upload_to_repo(
@@ -259,10 +279,7 @@ class TrustGateway:
                 )
             elif verdict == ScanVerdict.WARN:
                 log.warning(
-                    f"WARNING — {package}=={version} promoted with warnings"
-                )
-                self.nexus.upload_to_repo(
-                    repos["trusted"], package_file, ecosystem=eco_lower
+                    f"WARNING — Quarantining {package}=={version} (requires review)"
                 )
                 self.nexus.upload_to_repo(
                     repos["quarantine"], package_file, ecosystem=eco_lower
