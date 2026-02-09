@@ -104,7 +104,7 @@ class NexusClient:
                 log.error(f"Package '{package}' not found on registry")
             else:
                 log.error(f"pip download failed (exit {result.returncode})")
-            log.debug(stderr[:800])
+            log.error(f"pip stderr: {stderr[:800]}")
             return None
 
         files = list(Path(dest_dir).iterdir())
